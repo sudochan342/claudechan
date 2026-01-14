@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Duality Oracle | LUMIS & UMBRA",
-  description: "Two AI minds debate topics together, reaching unified insights through the dance of light and shadow. Watch them think, question, and synthesize.",
-  keywords: ["AI", "debate", "oracle", "philosophy", "dual agents", "yin yang", "synthesis"],
+  title: "$DUAL - The Duality Oracle",
+  description: "Two AI minds. One truth. Watch LUMIS and UMBRA debate any topic and reach synthesis together. The first AI debate protocol.",
+  keywords: ["$DUAL", "AI", "debate", "oracle", "crypto", "pump.fun", "LUMIS", "UMBRA", "synthesis"],
   openGraph: {
-    title: "The Duality Oracle",
-    description: "Two AI minds, one truth — watch them think together",
+    title: "$DUAL - The Duality Oracle",
+    description: "Two AI minds. One truth. The first AI debate protocol.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "The Duality Oracle",
-    description: "Two AI minds, one truth — watch them think together",
+    title: "$DUAL - The Duality Oracle",
+    description: "Two AI minds. One truth. The first AI debate protocol.",
   },
 };
 
@@ -23,8 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased bg-gray-950 text-gray-100 font-sans">
+    <html lang="en">
+      <body className="antialiased">
         {children}
       </body>
     </html>

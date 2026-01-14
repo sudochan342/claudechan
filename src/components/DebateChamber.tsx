@@ -28,12 +28,10 @@ export default function DebateChamber() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, synthesis]);
 
-  // Start debate when topic is set
   useEffect(() => {
     if (topic && !isDebating && !hasStartedRef.current) {
       hasStartedRef.current = true;
@@ -41,7 +39,6 @@ export default function DebateChamber() {
     }
   }, [topic]);
 
-  // Reset the ref when debate is reset
   useEffect(() => {
     if (!topic && !isDebating) {
       hasStartedRef.current = false;
@@ -116,51 +113,120 @@ export default function DebateChamber() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="text-center py-8 px-4">
-        <motion.h1
-          className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-amber-400 via-purple-400 to-violet-400 bg-clip-text text-transparent mb-2"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
+      {/* Epic Header */}
+      <header className="text-center pt-8 pb-4 px-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8 }}
         >
-          The Duality Oracle
-        </motion.h1>
-        <motion.p
-          className="text-gray-400"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-        >
-          Two minds, one truth — watch them think together
-        </motion.p>
+          {/* Decorative line */}
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
+            <span className="text-amber-400/60 text-xs tracking-[0.5em]">☀</span>
+            <div className="h-px w-8 bg-gradient-to-r from-amber-500/50 via-purple-500/50 to-violet-500/50" />
+            <span className="text-violet-400/60 text-xs tracking-[0.5em]">☾</span>
+            <div className="h-px w-16 bg-gradient-to-l from-transparent to-violet-500/50" />
+          </div>
+
+          <motion.h1
+            className="text-5xl md:text-6xl lg:text-7xl font-extralight tracking-[0.15em] uppercase"
+            style={{
+              background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 25%, #a78bfa 50%, #8b5cf6 75%, #7c3aed 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+            animate={{
+              backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
+            }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+          >
+            Duality Oracle
+          </motion.h1>
+
+          <motion.p
+            className="text-gray-500 mt-3 text-sm tracking-[0.3em] uppercase"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            Two minds • One truth • Infinite wisdom
+          </motion.p>
+        </motion.div>
       </header>
 
-      {/* Oracle Orbs */}
-      <div className="flex justify-center items-center gap-8 md:gap-24 py-8 px-4">
+      {/* Oracle Orbs - Larger spacing */}
+      <div className="flex justify-center items-start gap-4 md:gap-16 lg:gap-24 py-6 px-4">
         <OracleOrb
           agent={LUMIS}
           isActive={!!topic}
           isSpeaking={currentSpeaker === 'lumis'}
         />
 
-        {/* Connection between orbs */}
-        <div className="hidden md:block relative w-32">
+        {/* Energy connection between orbs */}
+        <div className="hidden md:flex flex-col items-center justify-center h-64 w-24 lg:w-32">
+          {/* Vertical energy beam */}
           <motion.div
-            className="absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-500/50 to-violet-500/50"
+            className="relative w-full h-1"
+            style={{
+              background: 'linear-gradient(90deg, rgba(251,191,36,0.6), rgba(139,92,246,0.6))',
+              boxShadow: '0 0 20px rgba(147,51,234,0.5)',
+            }}
             animate={{
-              opacity: isDebating ? [0.3, 0.8, 0.3] : 0.2,
+              opacity: isDebating ? [0.4, 1, 0.4] : 0.3,
+              scaleX: isDebating ? [1, 1.1, 1] : 1,
             }}
             transition={{ duration: 2, repeat: Infinity }}
           />
-          {isDebating && (
+
+          {/* Center symbol */}
+          <motion.div
+            className="my-4 text-2xl"
+            animate={{
+              opacity: [0.5, 1, 0.5],
+              scale: isDebating ? [1, 1.2, 1] : 1,
+              rotate: [0, 180, 360],
+            }}
+            transition={{
+              opacity: { duration: 2, repeat: Infinity },
+              scale: { duration: 2, repeat: Infinity },
+              rotate: { duration: 8, repeat: Infinity, ease: 'linear' },
+            }}
+            style={{
+              color: 'rgba(147,51,234,0.8)',
+              textShadow: '0 0 20px rgba(147,51,234,0.8)',
+            }}
+          >
+            ✧
+          </motion.div>
+
+          <motion.div
+            className="relative w-full h-1"
+            style={{
+              background: 'linear-gradient(90deg, rgba(251,191,36,0.6), rgba(139,92,246,0.6))',
+              boxShadow: '0 0 20px rgba(147,51,234,0.5)',
+            }}
+            animate={{
+              opacity: isDebating ? [0.4, 1, 0.4] : 0.3,
+              scaleX: isDebating ? [1, 1.1, 1] : 1,
+            }}
+            transition={{ duration: 2, repeat: Infinity, delay: 1 }}
+          />
+
+          {/* Speaking indicator */}
+          {isDebating && currentSpeaker && currentSpeaker !== 'synthesis' && (
             <motion.div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white"
+              className="absolute w-4 h-4 rounded-full"
+              style={{
+                background: currentSpeaker === 'lumis' ? '#fbbf24' : '#8b5cf6',
+                boxShadow: `0 0 20px ${currentSpeaker === 'lumis' ? '#fbbf24' : '#8b5cf6'}`,
+              }}
               animate={{
-                left: currentSpeaker === 'lumis' ? '0%' : currentSpeaker === 'umbra' ? '100%' : '50%',
-                scale: [1, 1.2, 1],
+                x: currentSpeaker === 'lumis' ? -40 : 40,
+                scale: [1, 1.3, 1],
               }}
               transition={{ duration: 0.5 }}
-              style={{ boxShadow: '0 0 20px white' }}
             />
           )}
         </div>
@@ -181,8 +247,10 @@ export default function DebateChamber() {
             exit={{ opacity: 0, y: -20 }}
             className="text-center px-4 mb-4"
           >
-            <p className="text-sm text-gray-500 mb-1">Contemplating:</p>
-            <p className="text-xl text-gray-200 italic">&ldquo;{topic}&rdquo;</p>
+            <div className="inline-block px-6 py-3 bg-gray-900/50 rounded-2xl border border-gray-800/50 backdrop-blur-sm">
+              <p className="text-xs text-gray-500 mb-1 tracking-widest uppercase">Contemplating</p>
+              <p className="text-lg md:text-xl text-gray-200 italic font-light">&ldquo;{topic}&rdquo;</p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -195,7 +263,6 @@ export default function DebateChamber() {
           ))}
         </AnimatePresence>
 
-        {/* Synthesis */}
         <AnimatePresence>
           {synthesis && (
             <>
@@ -225,20 +292,45 @@ export default function DebateChamber() {
                 currentSpeaker === 'umbra' ? 'justify-end' : 'justify-center'
               }`}
             >
-              <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 rounded-full">
+              <div
+                className="flex items-center gap-3 px-5 py-2.5 rounded-full backdrop-blur-sm"
+                style={{
+                  background: currentSpeaker === 'lumis'
+                    ? 'rgba(251,191,36,0.1)'
+                    : currentSpeaker === 'umbra'
+                    ? 'rgba(139,92,246,0.1)'
+                    : 'rgba(147,51,234,0.1)',
+                  border: `1px solid ${
+                    currentSpeaker === 'lumis'
+                      ? 'rgba(251,191,36,0.3)'
+                      : currentSpeaker === 'umbra'
+                      ? 'rgba(139,92,246,0.3)'
+                      : 'rgba(147,51,234,0.3)'
+                  }`,
+                }}
+              >
                 <motion.span
-                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  animate={{ opacity: [0.4, 1, 0.4], scale: [1, 1.2, 1] }}
                   transition={{ duration: 1, repeat: Infinity }}
                   className={
                     currentSpeaker === 'lumis' ? 'text-amber-400' :
                     currentSpeaker === 'umbra' ? 'text-violet-400' : 'text-purple-400'
                   }
                 >
-                  {currentSpeaker === 'lumis' ? '◉' : currentSpeaker === 'umbra' ? '◎' : '✧'}
+                  {currentSpeaker === 'lumis' ? '☀' : currentSpeaker === 'umbra' ? '☾' : '✧'}
                 </motion.span>
-                <span className="text-sm text-gray-400">
-                  {currentSpeaker === 'synthesis' ? 'Reaching synthesis...' : `${currentSpeaker.toUpperCase()} is contemplating...`}
+                <span className="text-sm text-gray-400 tracking-wide">
+                  {currentSpeaker === 'synthesis' ? 'Reaching synthesis...' : `${currentSpeaker.toUpperCase()} contemplates...`}
                 </span>
+                <motion.span
+                  className="flex gap-1"
+                  animate={{ opacity: [0, 1, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" style={{ animationDelay: '0.2s' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" style={{ animationDelay: '0.4s' }} />
+                </motion.span>
               </div>
             </motion.div>
           )}
@@ -247,7 +339,7 @@ export default function DebateChamber() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* New Topic / Reset Button */}
+      {/* Reset Button */}
       <AnimatePresence>
         {synthesis && !isDebating && (
           <motion.div
@@ -258,18 +350,22 @@ export default function DebateChamber() {
           >
             <motion.button
               onClick={resetDebate}
-              className="px-6 py-3 bg-gray-800/50 text-gray-300 rounded-xl border border-gray-700/50 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
-              whileHover={{ scale: 1.02 }}
+              className="group px-8 py-3 bg-gradient-to-r from-amber-500/10 to-violet-500/10 text-gray-300 rounded-full border border-gray-700/50 hover:border-purple-500/50 hover:text-white transition-all duration-300"
+              whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(139,92,246,0.3)' }}
               whileTap={{ scale: 0.98 }}
             >
-              Ask Another Question
+              <span className="flex items-center gap-3">
+                <span className="text-amber-400 group-hover:rotate-180 transition-transform duration-500">☀</span>
+                Ask Another Question
+                <span className="text-violet-400 group-hover:-rotate-180 transition-transform duration-500">☾</span>
+              </span>
             </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Topic Input */}
-      <div className="p-4 border-t border-gray-800/50">
+      <div className="p-4 pb-16 border-t border-gray-800/30">
         {!topic && <TopicInput />}
       </div>
     </div>

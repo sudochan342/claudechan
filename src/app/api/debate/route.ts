@@ -3,8 +3,14 @@ import OpenAI from 'openai';
 import { LUMIS, UMBRA, SYNTHESIS_PROMPT } from '@/lib/agents';
 import { saveDebateLog } from '@/lib/logging.server';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+// Use OpenRouter API (compatible with OpenAI SDK)
+const openrouter = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY || '',
+  baseURL: 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
+    'X-Title': 'The Duality Oracle',
+  },
 });
 
 // For demo mode when no API key
@@ -139,7 +145,7 @@ async function generateAgentResponse(
   currentAgent: 'lumis' | 'umbra'
 ): Promise<string> {
   // Demo mode if no API key
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
     return getRandomDemo(currentAgent);
   }
@@ -163,8 +169,8 @@ async function generateAgentResponse(
     });
   }
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+  const response = await openrouter.chat.completions.create({
+    model: 'openai/gpt-4o-mini', // OpenRouter model format
     messages,
     max_tokens: 150,
     temperature: 0.8,
@@ -178,7 +184,7 @@ async function generateSynthesis_(
   history: Array<{ agent: string; content: string }>
 ): Promise<string> {
   // Demo mode if no API key
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     await new Promise(r => setTimeout(r, 1500));
     return getRandomDemo('synthesis');
   }
@@ -187,8 +193,8 @@ async function generateSynthesis_(
     .map(m => `${m.agent.toUpperCase()}: ${m.content}`)
     .join('\n\n');
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+  const response = await openrouter.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
     messages: [
       { role: 'system', content: SYNTHESIS_PROMPT },
       { role: 'user', content: `Topic: "${topic}"\n\nDebate:\n${conversationText}\n\nProvide the synthesis.` },

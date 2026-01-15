@@ -43,6 +43,13 @@ export interface ChatMessage {
   color: string;
 }
 
+export interface UserAdvice {
+  id: string;
+  advice: string;
+  timestamp: number;
+  applied: boolean;
+}
+
 interface SurvivalState {
   // Game status
   isPlaying: boolean;
@@ -66,6 +73,9 @@ interface SurvivalState {
   chatMessages: ChatMessage[];
   viewerCount: number;
 
+  // User advice/teaching
+  userAdvice: UserAdvice[];
+
   // Actions
   startGame: () => void;
   pauseGame: () => void;
@@ -86,6 +96,10 @@ interface SurvivalState {
 
   addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   setViewerCount: (count: number) => void;
+
+  addUserAdvice: (advice: string) => void;
+  markAdviceApplied: (id: string) => void;
+  getActiveAdvice: () => UserAdvice[];
 
   resetGame: () => void;
 }
@@ -131,6 +145,7 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
 
   chatMessages: [],
   viewerCount: Math.floor(Math.random() * 500) + 100,
+  userAdvice: [],
 
   // Actions
   startGame: () => set({ isPlaying: true, isPaused: false }),
@@ -205,6 +220,29 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
 
   setViewerCount: (count) => set({ viewerCount: count }),
 
+  addUserAdvice: (advice) => set((state) => ({
+    userAdvice: [
+      ...state.userAdvice,
+      {
+        id: `advice-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        advice,
+        timestamp: Date.now(),
+        applied: false,
+      }
+    ].slice(-20) // Keep last 20 pieces of advice
+  })),
+
+  markAdviceApplied: (id) => set((state) => ({
+    userAdvice: state.userAdvice.map(a =>
+      a.id === id ? { ...a, applied: true } : a
+    )
+  })),
+
+  getActiveAdvice: () => {
+    const state = get();
+    return state.userAdvice.filter(a => !a.applied).slice(-5);
+  },
+
   resetGame: () => set({
     isPlaying: false,
     isPaused: false,
@@ -218,5 +256,6 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
     currentAction: '',
     chatMessages: [],
     viewerCount: Math.floor(Math.random() * 500) + 100,
+    userAdvice: [],
   }),
 }));

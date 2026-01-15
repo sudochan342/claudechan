@@ -1,8 +1,32 @@
+import Link from 'next/link';
 import DebateChamber from '@/components/DebateChamber';
 
 export default function Home() {
   return (
     <div className="relative min-h-screen bg-gray-950 overflow-hidden">
+      {/* Navigation */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-gray-950/80 backdrop-blur-sm border-b border-gray-800/50">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="text-lg font-bold bg-gradient-to-r from-amber-400 to-violet-400 bg-clip-text text-transparent">
+            ClaudeChan
+          </div>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="text-sm text-gray-400 hover:text-white transition-colors"
+            >
+              Duality Oracle
+            </Link>
+            <Link
+              href="/survival"
+              className="text-sm px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-500 hover:to-emerald-500 transition-all font-medium"
+            >
+              Survival Game
+            </Link>
+          </div>
+        </div>
+      </nav>
+
       {/* Mystical Background */}
       <div className="fixed inset-0 pointer-events-none">
         {/* Gradient orbs in background */}
@@ -40,7 +64,7 @@ export default function Home() {
       </div>
 
       {/* Main Content */}
-      <main className="relative z-10">
+      <main className="relative z-10 pt-16">
         <DebateChamber />
       </main>
 

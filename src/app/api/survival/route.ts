@@ -23,6 +23,7 @@ interface GameTurnRequest {
   inventory: InventoryItem[];
   recentEvents: string[];
   turnNumber: number;
+  userAdvice?: { advice: string }[];
 }
 
 function getRandomDemoGod() {
@@ -90,7 +91,8 @@ export async function POST(request: NextRequest) {
           ...gameState,
           worldState: updatedWorldState,
           playerStats: updatedPlayerStats,
-          recentEvents: [...gameState.recentEvents, godResponse.worldEvent]
+          recentEvents: [...gameState.recentEvents, godResponse.worldEvent],
+          userAdvice: gameState.userAdvice,
         });
 
         sendEvent({ type: 'survivor_thought', content: survivorResponse.thought });
@@ -200,13 +202,23 @@ async function generateSurvivorResponse(gameState: GameTurnRequest) {
     gameState.recentEvents
   );
 
+  // Build user message with optional advice
+  let userMessage = `It's turn ${gameState.turnNumber}. Analyze your situation carefully and decide your next action. Think through your priorities and survival needs.`;
+
+  if (gameState.userAdvice && gameState.userAdvice.length > 0) {
+    const adviceText = gameState.userAdvice
+      .map(a => `- "${a.advice}"`)
+      .join('\n');
+    userMessage += `\n\n**VIEWER ADVICE FROM THE WATCHERS:**\n${adviceText}\n\nConsider this advice from viewers who are watching you survive. They may have valuable insights!`;
+  }
+
   const response = await openrouter.chat.completions.create({
     model: 'openai/gpt-4o-mini',
     messages: [
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `It's turn ${gameState.turnNumber}. Analyze your situation carefully and decide your next action. Think through your priorities and survival needs.`
+        content: userMessage
       },
     ],
     max_tokens: 300,

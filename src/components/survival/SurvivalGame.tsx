@@ -8,6 +8,7 @@ import { PlayerStats } from './PlayerStats';
 import { GameLog } from './GameLog';
 import { AIBrains } from './AIBrain';
 import { PumpChat } from './PumpChat';
+import { TeachingPanel } from './TeachingPanel';
 
 export function SurvivalGame() {
   const {
@@ -32,6 +33,9 @@ export function SurvivalGame() {
     addInventoryItem,
     addChatMessage,
     resetGame,
+    userAdvice,
+    getActiveAdvice,
+    markAdviceApplied,
   } = useSurvivalStore();
 
   const [turnNumber, setTurnNumber] = useState(0);
@@ -46,6 +50,9 @@ export function SurvivalGame() {
     setIsProcessing(true);
 
     try {
+      // Get active advice to send to AI
+      const activeAdvice = getActiveAdvice();
+
       const response = await fetch('/api/survival', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -55,8 +62,12 @@ export function SurvivalGame() {
           inventory,
           recentEvents: gameEvents.slice(-5).map(e => e.content),
           turnNumber,
+          userAdvice: activeAdvice.map(a => ({ advice: a.advice })),
         }),
       });
+
+      // Mark advice as applied after sending
+      activeAdvice.forEach(a => markAdviceApplied(a.id));
 
       if (!response.ok) throw new Error('Game API error');
 
@@ -257,6 +268,8 @@ export function SurvivalGame() {
     addInventoryItem,
     addChatMessage,
     endGame,
+    getActiveAdvice,
+    markAdviceApplied,
   ]);
 
   // Game loop
@@ -297,23 +310,60 @@ export function SurvivalGame() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 text-white">
       {/* Header */}
-      <header className="border-b border-gray-800/50 bg-gray-900/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-3">
+      <header className="border-b border-gray-800/50 bg-gray-900/80 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <motion.h1
-                className="text-2xl font-bold bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent"
-                animate={{ opacity: [0.8, 1, 0.8] }}
-                transition={{ duration: 3, repeat: Infinity }}
+              <motion.div
+                className="flex items-center gap-3"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
               >
-                🌲 CLAUDE SURVIVAL
-              </motion.h1>
-              <div className="hidden md:flex items-center gap-2 text-sm text-gray-500">
-                <span>GOD AI vs SURVIVOR AI</span>
-                <span className="text-green-500">●</span>
-                <span>LIVE</span>
+                <div className="relative">
+                  <motion.span
+                    className="text-3xl"
+                    animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
+                    transition={{ duration: 4, repeat: Infinity }}
+                  >
+                    🌲
+                  </motion.span>
+                  <motion.div
+                    className="absolute -inset-2 bg-green-500/20 rounded-full blur-md"
+                    animate={{ opacity: [0.3, 0.6, 0.3] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                    CLAUDE SURVIVAL
+                  </h1>
+                  <p className="text-xs text-gray-500 font-medium -mt-0.5">The Forest vs Claude</p>
+                </div>
+              </motion.div>
+              <div className="hidden md:flex items-center gap-2 ml-4">
+                <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/30 rounded-full text-xs font-bold text-purple-300">
+                  GOD AI
+                </span>
+                <span className="text-gray-600">vs</span>
+                <span className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full text-xs font-bold text-blue-300">
+                  SURVIVOR AI
+                </span>
+                {isPlaying && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-center gap-1.5 ml-2 px-2 py-1 bg-red-500/20 border border-red-500/30 rounded-full"
+                  >
+                    <motion.span
+                      className="w-2 h-2 bg-red-500 rounded-full"
+                      animate={{ opacity: [1, 0.3, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    />
+                    <span className="text-xs font-bold text-red-400">LIVE</span>
+                  </motion.span>
+                )}
               </div>
             </div>
 
@@ -322,11 +372,22 @@ export function SurvivalGame() {
               {!isPlaying ? (
                 <motion.button
                   onClick={handleStart}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="px-6 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg shadow-lg shadow-green-500/25 hover:shadow-green-500/40 transition-all"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="group relative px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-green-500/30 hover:shadow-green-500/50 transition-all overflow-hidden"
                 >
-                  ▶️ START GAME
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-400 opacity-0 group-hover:opacity-20 transition-opacity"
+                  />
+                  <span className="relative flex items-center gap-2">
+                    <motion.span
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      ▶️
+                    </motion.span>
+                    START GAME
+                  </span>
                 </motion.button>
               ) : (
                 <>
@@ -334,22 +395,27 @@ export function SurvivalGame() {
                     onClick={isPaused ? resumeGame : pauseGame}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                    className={`px-4 py-2.5 rounded-xl font-medium transition-all ${
+                      isPaused
+                        ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'
+                    }`}
                   >
-                    {isPaused ? '▶️' : '⏸️'}
+                    {isPaused ? '▶️ Resume' : '⏸️ Pause'}
                   </motion.button>
 
-                  <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+                  <div className="flex items-center gap-1 bg-gray-800/80 rounded-xl p-1 border border-gray-700/50">
                     {[1, 2, 3].map((speed) => (
                       <motion.button
                         key={speed}
                         onClick={() => setGameSpeed(speed as 1 | 2 | 3)}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        className={`px-3 py-1 rounded text-sm ${gameSpeed === speed
-                            ? 'bg-green-600 text-white'
-                            : 'text-gray-400 hover:text-white'
-                          }`}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                          gameSpeed === speed
+                            ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                        }`}
                       >
                         {speed}x
                       </motion.button>
@@ -363,9 +429,9 @@ export function SurvivalGame() {
                     }}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-4 py-2 bg-red-600/50 hover:bg-red-600 rounded-lg transition-colors"
+                    className="px-4 py-2.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 hover:border-red-500 rounded-xl font-medium transition-all"
                   >
-                    ⏹️ END
+                    ⏹️ End
                   </motion.button>
                 </>
               )}
@@ -414,6 +480,9 @@ export function SurvivalGame() {
             {/* Player Stats */}
             <PlayerStats />
 
+            {/* Teaching Panel */}
+            <TeachingPanel />
+
             {/* Pump.fun Style Chat */}
             <PumpChat />
           </div>
@@ -421,10 +490,31 @@ export function SurvivalGame() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800/50 py-4 mt-8">
-        <div className="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
-          <p>Claude Survival Game - Watch AI try to survive in a hostile world</p>
-          <p className="text-xs mt-1">Powered by dual AI: THE FOREST (God) vs CLAUDE (Survivor)</p>
+      <footer className="border-t border-gray-800/50 py-6 mt-12 bg-gray-900/50">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🌲</span>
+              <div>
+                <p className="font-bold text-white">Claude Survival Game</p>
+                <p className="text-xs text-gray-500">A dual AI experiment in survival</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 text-sm text-gray-500">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                <span>THE FOREST (God AI)</span>
+              </div>
+              <span className="text-gray-700">vs</span>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                <span>CLAUDE (Survivor AI)</span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-600">
+              Powered by OpenRouter AI
+            </div>
+          </div>
         </div>
       </footer>
     </div>

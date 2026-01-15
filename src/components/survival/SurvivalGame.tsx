@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSurvivalStore } from '@/store/survival';
-import { GameWorld } from './GameWorld';
+import { PixiGameWorld } from './PixiGameWorld';
 import { PlayerStats } from './PlayerStats';
 import { GameLog } from './GameLog';
 import { AIBrains } from './AIBrain';
@@ -380,7 +380,7 @@ export function SurvivalGame() {
           {/* Main game area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Game World Visualization */}
-            <GameWorld />
+            <PixiGameWorld />
 
             {/* AI Brains */}
             <AIBrains />

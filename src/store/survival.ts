@@ -42,6 +42,7 @@ interface SurvivalState {
   isConnected: boolean;
   isConnecting: boolean;
   connectionError: string | null;
+  reconnectAttempts: number;
 
   // Game status
   isPlaying: boolean;
@@ -83,18 +84,21 @@ const initialWorldState: WorldState = {
 
 // Store the EventSource connection outside the store
 let eventSource: EventSource | null = null;
+let reconnectTimeout: NodeJS.Timeout | null = null;
+let heartbeatInterval: NodeJS.Timeout | null = null;
 
 export const useSurvivalStore = create<SurvivalState>((set, get) => ({
   // Initial state
   isConnected: false,
   isConnecting: false,
   connectionError: null,
+  reconnectAttempts: 0,
 
-  isPlaying: false,
+  isPlaying: true, // Always show as playing
   isPaused: false,
 
   playerStats: initialPlayerStats,
-  inventory: { wood: 2, berries: 3 },
+  inventory: { wood: 5, berries: 5 },
 
   worldState: initialWorldState,
 
@@ -102,11 +106,30 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
   currentAction: '',
   currentPhase: 'idle',
 
-  viewerCount: Math.floor(Math.random() * 200) + 50,
+  viewerCount: Math.floor(Math.random() * 200) + 100,
 
-  // Connect to the shared game stream
+  // Connect to the shared game stream - CRASH PROOF
   connect: () => {
-    if (eventSource || get().isConnecting) return;
+    // Don't connect if already connected or connecting
+    if (eventSource?.readyState === EventSource.OPEN || get().isConnecting) {
+      return;
+    }
+
+    // Clear any existing connection
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+      eventSource = null;
+    }
+
+    // Clear any pending reconnect
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
 
     set({ isConnecting: true, connectionError: null });
 
@@ -114,8 +137,28 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
       eventSource = new EventSource('/api/game-stream');
 
       eventSource.onopen = () => {
-        set({ isConnected: true, isConnecting: false, isPlaying: true });
-        console.log('[GameStream] Connected to shared game');
+        console.log('[GameStream] Connected!');
+        set({
+          isConnected: true,
+          isConnecting: false,
+          isPlaying: true,
+          connectionError: null,
+          reconnectAttempts: 0,
+        });
+
+        // Start heartbeat to check connection
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = setInterval(() => {
+          const lastUpdate = get().gameEvents[get().gameEvents.length - 1]?.timestamp || 0;
+          const timeSinceUpdate = Date.now() - lastUpdate;
+
+          // If no update in 30 seconds, reconnect
+          if (timeSinceUpdate > 30000 && get().isConnected) {
+            console.log('[GameStream] No updates, reconnecting...');
+            get().disconnect();
+            setTimeout(() => get().connect(), 1000);
+          }
+        }, 10000);
       };
 
       eventSource.onmessage = (event) => {
@@ -123,71 +166,120 @@ export const useSurvivalStore = create<SurvivalState>((set, get) => ({
           const serverState: SharedGameState = JSON.parse(event.data);
           get().syncFromServer(serverState);
         } catch (e) {
-          console.error('[GameStream] Failed to parse state:', e);
+          console.error('[GameStream] Parse error:', e);
+          // Don't disconnect on parse errors
         }
       };
 
-      eventSource.onerror = (error) => {
-        console.error('[GameStream] Connection error:', error);
+      eventSource.onerror = () => {
+        console.log('[GameStream] Connection error, will reconnect...');
+
+        const attempts = get().reconnectAttempts;
+
         set({
           isConnected: false,
           isConnecting: false,
-          connectionError: 'Connection lost. Retrying...',
+          reconnectAttempts: attempts + 1,
         });
 
-        // Reconnect after delay
-        eventSource?.close();
+        // Close and cleanup
+        try {
+          eventSource?.close();
+        } catch (e) {
+          // Ignore
+        }
         eventSource = null;
 
-        setTimeout(() => {
+        // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
+        const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+
+        reconnectTimeout = setTimeout(() => {
           if (!get().isConnected) {
+            console.log(`[GameStream] Reconnecting (attempt ${attempts + 1})...`);
             get().connect();
           }
-        }, 3000);
+        }, delay);
       };
+
     } catch (e) {
+      console.error('[GameStream] Failed to create connection:', e);
       set({
         isConnecting: false,
-        connectionError: 'Failed to connect to game server',
+        connectionError: 'Connection failed',
       });
+
+      // Retry after delay
+      reconnectTimeout = setTimeout(() => get().connect(), 3000);
     }
   },
 
   disconnect: () => {
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
     if (eventSource) {
-      eventSource.close();
+      try {
+        eventSource.close();
+      } catch (e) {
+        // Ignore
+      }
       eventSource = null;
     }
-    set({ isConnected: false, isPlaying: false });
+    set({ isConnected: false, isConnecting: false });
   },
 
-  // Sync local state from server
+  // Sync local state from server - with error handling
   syncFromServer: (serverState: SharedGameState) => {
-    // Convert server logs to game events
-    const gameEvents: GameEvent[] = serverState.logs.map(log => ({
-      id: log.id,
-      timestamp: log.timestamp,
-      type: log.type as GameEvent['type'],
-      message: log.message,
-    }));
+    try {
+      // Validate server state
+      if (!serverState || typeof serverState !== 'object') {
+        return;
+      }
 
-    set({
-      isPlaying: serverState.isRunning,
-      playerStats: {
-        health: serverState.health,
-        hunger: serverState.hunger,
-        energy: serverState.energy,
-      },
-      inventory: serverState.inventory,
-      worldState: {
-        timeOfDay: serverState.timeOfDay,
-        weather: serverState.weather,
-        daysSurvived: serverState.daysSurvived,
-        threats: serverState.threats,
-      },
-      gameEvents,
-      currentAction: serverState.currentAction,
-      currentPhase: serverState.currentPhase,
-    });
+      // Convert server logs to game events with validation
+      const gameEvents: GameEvent[] = (serverState.logs || [])
+        .filter(log => log && log.id && log.message)
+        .map(log => ({
+          id: log.id,
+          timestamp: log.timestamp || Date.now(),
+          type: (log.type as GameEvent['type']) || 'system',
+          message: log.message,
+        }));
+
+      set({
+        isPlaying: true, // Always playing
+        playerStats: {
+          health: Math.max(0, Math.min(100, serverState.health || 100)),
+          hunger: Math.max(0, Math.min(100, serverState.hunger || 80)),
+          energy: Math.max(0, Math.min(100, serverState.energy || 90)),
+        },
+        inventory: serverState.inventory || { wood: 5, berries: 5 },
+        worldState: {
+          timeOfDay: serverState.timeOfDay || 'dawn',
+          weather: serverState.weather || 'clear',
+          daysSurvived: serverState.daysSurvived || 0,
+          threats: serverState.threats || [],
+        },
+        gameEvents,
+        currentAction: serverState.currentAction || '',
+        currentPhase: serverState.currentPhase || 'idle',
+      });
+    } catch (e) {
+      console.error('[GameStream] Sync error:', e);
+      // Don't crash, just log the error
+    }
   },
 }));
+
+// Auto-connect when the store is first accessed in browser
+if (typeof window !== 'undefined') {
+  // Small delay to ensure hydration is complete
+  setTimeout(() => {
+    useSurvivalStore.getState().connect();
+  }, 100);
+}

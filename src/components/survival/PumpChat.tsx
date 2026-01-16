@@ -4,7 +4,18 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSurvivalStore } from '@/store/survival';
 
-// Simulated viewer usernames and their colors
+interface PumpChatProps {
+  contractAddress?: string;
+  usePumpEmbed?: boolean;
+}
+
+interface ChatMessage {
+  id: string;
+  username: string;
+  message: string;
+  color: string;
+}
+
 const FAKE_USERS = [
   { name: 'degen_andy', color: '#f97316' },
   { name: 'pump_it_up', color: '#22c55e' },
@@ -24,12 +35,13 @@ const FAKE_USERS = [
 ];
 
 const REACTION_MESSAGES = [
-  { trigger: 'danger', messages: ['RUN CLAUDE RUN!!! 😱', 'oh no oh no oh no', 'F in chat', 'HES COOKED 💀', 'NGMI', 'bro is done 😭'] },
-  { trigger: 'success', messages: ['LETS GOOOO 🚀', 'WAGMI', 'based claude', 'chad move', 'absolute unit', 'W'] },
-  { trigger: 'food', messages: ['eat up king 👑', 'monch monch', 'hungry boi fed', 'FOOD ARC'] },
-  { trigger: 'fight', messages: ['FIGHT FIGHT FIGHT', 'Violence!! 🔥', 'claude chose violence today', 'bonk time'] },
-  { trigger: 'rest', messages: ['sleepy boi', 'zzz', 'rest arc best arc', 'self care king'] },
-  { trigger: 'general', messages: ['lol', 'kek', 'interesting...', 'nice', 'this is peak content', 'i love this', 'claude gaming', 'based', 'lets see how this goes', 'omg', '👀', '🔥', '💀', 'wen moon', 'claude is HIM'] },
+  { trigger: 'danger', messages: ['RUN CLAUDE RUN!!! 😱', 'oh no oh no oh no', 'F in chat', 'HES COOKED 💀', 'NGMI', 'bro is done 😭', 'SELL SELL SELL jk 💎🙌'] },
+  { trigger: 'success', messages: ['LETS GOOOO 🚀', 'WAGMI', 'based claude', 'chad move', 'absolute unit', 'W', 'MOON SOON 🌙', 'aping in more!!'] },
+  { trigger: 'food', messages: ['eat up king 👑', 'monch monch', 'hungry boi fed', 'FOOD ARC', 'bullish on food'] },
+  { trigger: 'fight', messages: ['FIGHT FIGHT FIGHT', 'Violence!! 🔥', 'claude chose violence today', 'bonk time', 'pvp mode activated'] },
+  { trigger: 'rest', messages: ['sleepy boi', 'zzz', 'rest arc best arc', 'self care king', 'consolidation phase'] },
+  { trigger: 'pump', messages: ['PUMP IT 🚀', 'LFG!!!', 'TO THE MOON', 'we early frfr', 'generational wealth incoming', 'this is the one', 'buy the dip', '100x incoming', 'never selling 💎', 'claude gonna make it'] },
+  { trigger: 'general', messages: ['lol', 'kek', 'interesting...', 'nice', 'this is peak content', 'i love this', 'claude gaming', 'based', 'lets see how this goes', 'omg', '👀', '🔥', '💀', 'wen moon', 'claude is HIM', 'best token ever', 'aped in'] },
 ];
 
 function getRandomUser() {
@@ -41,41 +53,55 @@ function getRandomMessage(trigger: string = 'general') {
   return category.messages[Math.floor(Math.random() * category.messages.length)];
 }
 
-export function PumpChat() {
-  const { chatMessages, addChatMessage, viewerCount, setViewerCount, isPlaying, gameEvents } = useSurvivalStore();
+export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePumpEmbed = true }: PumpChatProps) {
+  const { viewerCount, isPlaying, gameEvents } = useSurvivalStore();
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [userMessage, setUserMessage] = useState('');
+  const [showEmbed, setShowEmbed] = useState(usePumpEmbed);
+  const [localViewerCount, setLocalViewerCount] = useState(viewerCount);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll chat
+  const addChatMessage = (msg: Omit<ChatMessage, 'id'>) => {
+    const newMsg: ChatMessage = {
+      ...msg,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+    setChatMessages(prev => {
+      const updated = [...prev, newMsg];
+      // Keep last 50 messages
+      return updated.slice(-50);
+    });
+  };
+
   useEffect(() => {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
   }, [chatMessages]);
 
-  // Simulate viewer count fluctuation
+  // Simulate viewer count changes
   useEffect(() => {
     const interval = setInterval(() => {
-      setViewerCount(viewerCount + Math.floor(Math.random() * 20) - 10);
+      setLocalViewerCount(prev => Math.max(100, prev + Math.floor(Math.random() * 20) - 10));
     }, 5000);
     return () => clearInterval(interval);
-  }, [viewerCount, setViewerCount]);
+  }, []);
 
-  // Simulate fake chat messages
+  // Generate fake chat messages
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || showEmbed) return;
 
     const interval = setInterval(() => {
-      // Determine message type based on recent events
       const lastEvent = gameEvents[gameEvents.length - 1];
-      let trigger = 'general';
+      let trigger = Math.random() > 0.7 ? 'pump' : 'general';
 
       if (lastEvent) {
-        if (lastEvent.type === 'danger') trigger = 'danger';
-        else if (lastEvent.type === 'success') trigger = 'success';
-        else if (lastEvent.content.toLowerCase().includes('food') || lastEvent.content.toLowerCase().includes('eat') || lastEvent.content.toLowerCase().includes('berr')) trigger = 'food';
-        else if (lastEvent.content.toLowerCase().includes('fight') || lastEvent.content.toLowerCase().includes('attack')) trigger = 'fight';
-        else if (lastEvent.content.toLowerCase().includes('rest') || lastEvent.content.toLowerCase().includes('sleep')) trigger = 'rest';
+        const content = lastEvent.message.toLowerCase();
+        if (content.includes('damage') || content.includes('threat') || content.includes('danger')) trigger = 'danger';
+        else if (content.includes('success') || content.includes('survived')) trigger = Math.random() > 0.5 ? 'success' : 'pump';
+        else if (content.includes('food') || content.includes('eat') || content.includes('berr')) trigger = 'food';
+        else if (content.includes('fight') || content.includes('attack')) trigger = 'fight';
+        else if (content.includes('rest') || content.includes('sleep')) trigger = 'rest';
       }
 
       const user = getRandomUser();
@@ -87,7 +113,7 @@ export function PumpChat() {
     }, 2000 + Math.random() * 3000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, gameEvents, addChatMessage]);
+  }, [isPlaying, gameEvents, showEmbed]);
 
   const handleSend = () => {
     if (!userMessage.trim()) return;
@@ -95,112 +121,181 @@ export function PumpChat() {
     addChatMessage({
       username: 'you',
       message: userMessage,
-      color: '#ffffff',
+      color: '#3b82f6',
     });
     setUserMessage('');
   };
 
   return (
-    <div className="bg-gray-900/90 backdrop-blur-sm rounded-2xl border border-gray-700/50 flex flex-col h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white/95 backdrop-blur-xl rounded-3xl border-4 border-white/50 shadow-2xl shadow-lime-500/10 flex flex-col"
+    >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-700/50 bg-gradient-to-r from-green-900/30 to-purple-900/30">
+      <div className="px-5 py-4 border-b-2 border-gray-100 bg-gradient-to-r from-lime-50 via-emerald-50 to-teal-50 rounded-t-3xl">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <motion.div
-              className="w-2 h-2 rounded-full bg-red-500"
-              animate={{ opacity: [1, 0.5, 1] }}
-              transition={{ duration: 1, repeat: Infinity }}
-            />
-            <span className="text-white font-bold text-sm">LIVE CHAT</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <motion.span
-              className="text-xs text-green-400 font-mono"
-              animate={{ opacity: [0.7, 1, 0.7] }}
+              className="w-10 h-10 rounded-xl bg-gradient-to-r from-lime-500 to-emerald-500 flex items-center justify-center text-xl"
+              animate={{ scale: [1, 1.1, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              👁 {Math.max(100, viewerCount).toLocaleString()}
-            </motion.span>
-          </div>
-        </div>
-      </div>
-
-      {/* Chat messages */}
-      <div
-        ref={chatRef}
-        className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
-        style={{ maxHeight: '300px' }}
-      >
-        <AnimatePresence initial={false}>
-          {chatMessages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex items-start gap-1.5 text-sm"
-            >
-              <span
-                className="font-medium flex-shrink-0"
-                style={{ color: msg.color }}
-              >
-                {msg.username}:
-              </span>
-              <span className="text-gray-300 break-words">{msg.message}</span>
+              ⛽
             </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {chatMessages.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-gray-500 text-sm">Chat will appear here when the game starts...</p>
+            <div>
+              <span className="font-black text-lg bg-gradient-to-r from-lime-600 to-emerald-600 bg-clip-text text-transparent">PUMP.FUN</span>
+              <p className="text-xs font-semibold text-gray-500">Live Token Chat</p>
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Chat input */}
-      <div className="p-2 border-t border-gray-700/50">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={userMessage}
-            onChange={(e) => setUserMessage(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Send a message..."
-            className="flex-1 bg-gray-800/80 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500/50"
-          />
-          <motion.button
-            onClick={handleSend}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-sm font-medium rounded-lg hover:from-green-500 hover:to-emerald-500 transition-all"
-          >
-            Send
-          </motion.button>
+          <div className="flex items-center gap-2">
+            <motion.button
+              onClick={() => setShowEmbed(!showEmbed)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                showEmbed
+                  ? 'bg-lime-500 text-white'
+                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+              }`}
+            >
+              {showEmbed ? '🔴 Live' : '💬 Demo'}
+            </motion.button>
+            <motion.div
+              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full"
+              animate={{ scale: [1, 1.02, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              <span className="text-lg">👁</span>
+              <span className="font-bold text-emerald-700">{Math.max(100, localViewerCount).toLocaleString()}</span>
+            </motion.div>
+          </div>
         </div>
       </div>
 
-      {/* Quick reactions */}
-      <div className="px-2 pb-2 flex flex-wrap gap-1">
-        {['🔥', '💀', '🚀', 'W', 'L', '👀'].map((emoji) => (
-          <motion.button
-            key={emoji}
-            onClick={() => {
-              addChatMessage({
-                username: 'you',
-                message: emoji,
-                color: '#ffffff',
-              });
-            }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="px-2 py-1 bg-gray-800/60 hover:bg-gray-700/60 rounded text-sm transition-colors"
+      {showEmbed ? (
+        /* Pump.fun Embed */
+        <div className="flex-1 p-4" style={{ minHeight: '400px' }}>
+          <div className="w-full h-full rounded-2xl overflow-hidden border-2 border-lime-200">
+            {contractAddress !== 'YOUR_CONTRACT_ADDRESS_HERE' && contractAddress !== 'DEPLOYING...' ? (
+              <iframe
+                src={`https://pump.fun/coin/${contractAddress}?embed=chat`}
+                className="w-full h-full"
+                style={{ minHeight: '380px' }}
+                title="Pump.fun Chat"
+                allow="clipboard-write"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-lime-50 to-emerald-50 p-8">
+                <motion.span
+                  className="text-6xl mb-4"
+                  animate={{ y: [0, -10, 0], rotate: [0, 5, -5, 0] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  ⛽
+                </motion.span>
+                <p className="text-xl font-black text-gray-700 text-center mb-2">Pump.fun Chat</p>
+                <p className="text-gray-500 text-center text-sm max-w-xs">
+                  Add your contract address to enable live Pump.fun chat integration!
+                </p>
+                <motion.a
+                  href="https://pump.fun"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="mt-4 px-6 py-3 bg-gradient-to-r from-lime-500 to-emerald-500 text-white font-bold rounded-xl shadow-lg"
+                >
+                  Launch on Pump.fun
+                </motion.a>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Demo Chat Messages */}
+          <div
+            ref={chatRef}
+            className="flex-1 overflow-y-auto p-4 space-y-2"
+            style={{ maxHeight: '280px' }}
           >
-            {emoji}
-          </motion.button>
-        ))}
-      </div>
-    </div>
+            <AnimatePresence initial={false}>
+              {chatMessages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex items-start gap-2 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl px-3 py-2"
+                >
+                  <span className="font-bold text-sm" style={{ color: msg.color }}>
+                    {msg.username}:
+                  </span>
+                  <span className="text-gray-700 text-sm">{msg.message}</span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {chatMessages.length === 0 && (
+              <div className="text-center py-12">
+                <motion.span
+                  className="text-5xl"
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  💬
+                </motion.span>
+                <p className="text-gray-400 font-medium mt-2">Chat will appear when the game starts!</p>
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div className="p-4 border-t-2 border-gray-100">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={userMessage}
+                onChange={(e) => setUserMessage(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder="Say something..."
+                className="flex-1 bg-gray-100 border-2 border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-lime-400 focus:ring-2 focus:ring-lime-200 font-medium transition-all"
+              />
+              <motion.button
+                onClick={handleSend}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-6 py-3 bg-gradient-to-r from-lime-500 to-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-lime-500/30 hover:shadow-lime-500/50 transition-all"
+              >
+                Send
+              </motion.button>
+            </div>
+
+            {/* Quick reactions */}
+            <div className="flex flex-wrap gap-2 mt-3">
+              {['🚀', '💎', '🔥', 'WAGMI', 'LFG', '🌙', '📈', '❤️'].map((emoji) => (
+                <motion.button
+                  key={emoji}
+                  onClick={() => {
+                    addChatMessage({
+                      username: 'you',
+                      message: emoji,
+                      color: '#3b82f6',
+                    });
+                  }}
+                  whileHover={{ scale: 1.15, y: -2 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="px-3 py-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-lime-100 hover:to-emerald-100 rounded-xl text-sm font-bold transition-all shadow-sm"
+                >
+                  {emoji}
+                </motion.button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </motion.div>
   );
 }

@@ -1,4 +1,27 @@
-import { PlayerStats, WorldState, InventoryItem } from '@/store/survival';
+// Local type definitions for survival game
+export interface PlayerStats {
+  health: number;
+  hunger: number;
+  energy: number;
+  thirst?: number;
+  morale?: number;
+}
+
+export interface WorldState {
+  timeOfDay: 'dawn' | 'day' | 'dusk' | 'night';
+  weather: 'clear' | 'rain' | 'storm' | 'cloudy';
+  daysSurvived: number;
+  threats: string[];
+  temperature?: number;
+  currentLocation?: string;
+  resources?: string[];
+}
+
+export interface InventoryItem {
+  name: string;
+  icon: string;
+  quantity: number;
+}
 
 export interface SurvivalAgent {
   id: string;
@@ -131,18 +154,18 @@ export function generateSurvivorSystemPrompt(
 CURRENT SITUATION:
 - Time: ${worldState.timeOfDay}
 - Weather: ${worldState.weather}
-- Temperature: ${worldState.temperature}°C
+- Temperature: ${worldState.temperature ?? 20}°C
 - Days Survived: ${worldState.daysSurvived}
-- Location: ${worldState.currentLocation}
+- Location: ${worldState.currentLocation ?? 'Unknown'}
 - Visible Threats: ${worldState.threats.length > 0 ? worldState.threats.join(', ') : 'None'}
-- Available Resources: ${worldState.resources.join(', ')}
+- Available Resources: ${(worldState.resources || []).join(', ') || 'Unknown'}
 
 YOUR STATUS:
 - Health: ${playerStats.health}% ${playerStats.health < 30 ? '⚠️ CRITICAL' : ''}
 - Hunger: ${playerStats.hunger}% ${playerStats.hunger < 30 ? '⚠️ STARVING' : ''}
-- Thirst: ${playerStats.thirst}% ${playerStats.thirst < 30 ? '⚠️ DEHYDRATED' : ''}
+- Thirst: ${playerStats.thirst ?? 100}% ${(playerStats.thirst ?? 100) < 30 ? '⚠️ DEHYDRATED' : ''}
 - Energy: ${playerStats.energy}% ${playerStats.energy < 30 ? '⚠️ EXHAUSTED' : ''}
-- Morale: ${playerStats.morale}%
+- Morale: ${playerStats.morale ?? 100}%
 
 INVENTORY: ${inventoryStr}
 
@@ -176,51 +199,235 @@ RESPONSE FORMAT:
 Be human, relatable, and show your thought process. The audience is rooting for you!`;
 }
 
-// Demo mode responses for when API is unavailable
+// Demo mode responses for when API is unavailable - expanded for more variety
 export const DEMO_GOD_RESPONSES = [
+  // Morning/Dawn events
   {
-    thought: "The survivor thinks they're safe... let me remind them of their fragility.",
-    worldEvent: "A cold wind sweeps through the forest. Branches creak ominously overhead. Something watches from the shadows...",
-    worldStateChanges: { temperature: -3, weather: 'cloudy' as const },
+    thought: "A new day dawns. Let's see how long they last this time.",
+    worldEvent: "🌅 The sun rises over the treetops. Morning mist clings to the ground. A fresh start... or is it?",
+    worldStateChanges: { timeOfDay: 'dawn' as const, weather: 'clear' as const, temperature: 12 },
+    playerStatChanges: { morale: 5 },
+    intensity: 2
+  },
+  {
+    thought: "The forest awakens. Birds sing... but so do the predators.",
+    worldEvent: "🐦 Birds chirp loudly, signaling the start of a new day. Something moved in the bushes nearby.",
+    worldStateChanges: { timeOfDay: 'dawn' as const },
+    intensity: 3
+  },
+  // Day events
+  {
+    thought: "The sun beats down. Let's test their endurance.",
+    worldEvent: "☀️ Midday sun blazes overhead. It's getting hot and the survivor looks tired.",
+    worldStateChanges: { timeOfDay: 'day' as const, temperature: 28, weather: 'clear' as const },
+    playerStatChanges: { thirst: -10, energy: -5 },
+    intensity: 4
+  },
+  {
+    thought: "A peaceful moment... too peaceful. Time to shake things up.",
+    worldEvent: "🌤️ The afternoon is calm. Distant thunder rumbles. A storm is coming.",
+    worldStateChanges: { timeOfDay: 'day' as const, weather: 'cloudy' as const },
+    intensity: 3
+  },
+  {
+    thought: "Hunger must be setting in by now. Let me make foraging difficult.",
+    worldEvent: "🍃 The berry bushes here have been picked clean by animals. Food is scarce.",
+    worldStateChanges: { timeOfDay: 'day' as const },
+    playerStatChanges: { hunger: -8 },
+    intensity: 4
+  },
+  // Dusk events
+  {
+    thought: "The golden hour approaches. Danger lurks in the fading light.",
+    worldEvent: "🌇 The sky turns orange and pink. Shadows grow longer. The forest grows quieter.",
+    worldStateChanges: { timeOfDay: 'dusk' as const, temperature: -4 },
     playerStatChanges: { morale: -5 },
     intensity: 4
   },
   {
-    thought: "Time to test their reflexes. A predator approaches.",
-    worldEvent: "Rustling in the underbrush. A pair of yellow eyes gleam in the darkness. A wolf has caught your scent!",
-    worldStateChanges: { threats: ['Wolf'] },
-    newThreat: 'wolf',
+    thought: "Dusk - the hunting hour begins. Predators are waking up.",
+    worldEvent: "🐺 Howling echoes through the trees as the sun sets. Wolves are on the hunt tonight.",
+    worldStateChanges: { timeOfDay: 'dusk' as const },
+    newThreat: 'Wolf',
+    intensity: 6
+  },
+  // Night events
+  {
+    thought: "Night falls. Let the true test begin.",
+    worldEvent: "🌙 Darkness engulfs the forest. Only the moon provides dim light. Every sound is amplified.",
+    worldStateChanges: { timeOfDay: 'night' as const, temperature: -8 },
+    playerStatChanges: { morale: -10 },
+    intensity: 5
+  },
+  {
+    thought: "The coldest hour approaches. Will they survive till dawn?",
+    worldEvent: "❄️ The temperature drops sharply. Frost forms on the leaves. Hypothermia is a real threat.",
+    worldStateChanges: { timeOfDay: 'night' as const, temperature: -5, weather: 'clear' as const },
+    playerStatChanges: { health: -5 },
     intensity: 6
   },
   {
-    thought: "Night falls. Let the true test begin.",
-    worldEvent: "The sun dips below the treeline. Shadows lengthen and merge into darkness. The forest comes alive with unseen movements.",
-    worldStateChanges: { timeOfDay: 'night' as const, temperature: -5 },
-    playerStatChanges: { morale: -10 },
+    thought: "Something ancient stirs in the darkness...",
+    worldEvent: "👁️ Glowing eyes watch from the shadows. The forest is never truly empty at night.",
+    worldStateChanges: { timeOfDay: 'night' as const },
+    playerStatChanges: { morale: -15 },
+    intensity: 7
+  },
+  // Weather events
+  {
+    thought: "Let the heavens open. A storm will test their resolve.",
+    worldEvent: "⛈️ Thunder cracks! Heavy rain begins pouring down. Lightning illuminates the sky!",
+    worldStateChanges: { weather: 'storm' as const, temperature: -6 },
+    playerStatChanges: { morale: -10, energy: -10 },
+    intensity: 7
+  },
+  {
+    thought: "Gentle rain to lull them into false security...",
+    worldEvent: "🌧️ Light rain begins to fall. The patter on leaves is almost peaceful.",
+    worldStateChanges: { weather: 'rain' as const },
+    playerStatChanges: { morale: -3 },
+    intensity: 3
+  },
+  // Threat events
+  {
+    thought: "Time to introduce a new challenge. A bear should do nicely.",
+    worldEvent: "🐻 DANGER! A massive grizzly bear emerges from the treeline! It looks hungry!",
+    newThreat: 'Bear',
+    playerStatChanges: { morale: -20 },
+    intensity: 8
+  },
+  {
+    thought: "A serpent in the grass. Classic.",
+    worldEvent: "🐍 A venomous snake slithers across the path! Watch your step!",
+    newThreat: 'Snake',
     intensity: 5
+  },
+  // Resource/Discovery events
+  {
+    thought: "I'll give them a small gift... for now.",
+    worldEvent: "🫐 A wild berry bush is spotted nearby! Nature provides... this time.",
+    worldStateChanges: { resources: ['berries', 'water', 'wood'] },
+    playerStatChanges: { morale: 5 },
+    intensity: 2
+  },
+  {
+    thought: "The stream flows clear today. Let them drink.",
+    worldEvent: "💧 The sound of running water! A fresh stream is nearby.",
+    worldStateChanges: { resources: ['water', 'fish', 'stones'] },
+    intensity: 2
   },
 ];
 
 export const DEMO_SURVIVOR_RESPONSES = [
+  // Gathering actions
   {
-    thought: "I need to gather wood before nightfall. Fire is essential for survival.",
+    thought: "I need wood for fire and shelter. The fallen tree looks promising.",
     chosenAction: "chop_wood",
-    actionDescription: "I find a fallen birch tree and begin breaking off dry branches. The wood is perfect - dry enough to burn cleanly.",
+    actionDescription: "🪓 Chopping wood from a fallen tree. The bark is dry - perfect for kindling!",
     emotionalState: "focused",
-    survivalTip: "Always gather more firewood than you think you need. The night is long and cold."
+    survivalTip: "Dry, dead wood burns better than green wood."
   },
   {
-    thought: "My thirst is becoming critical. Dehydration kills faster than hunger.",
+    thought: "Those berries look safe to eat. I recognize them from survival training.",
+    chosenAction: "gather_berries",
+    actionDescription: "🫐 Carefully picking ripe berries, avoiding the red ones. Blue berries are usually safe!",
+    emotionalState: "hopeful",
+    survivalTip: "Blue and black berries are usually safe. Avoid white and red berries."
+  },
+  {
+    thought: "Dehydration is the silent killer. I need water now.",
     chosenAction: "collect_water",
-    actionDescription: "I follow the sound of running water to a small stream. I cup my hands and drink deeply, then fill my makeshift container.",
+    actionDescription: "💧 Found a clear stream! Cupping hands to drink the cool, refreshing water.",
     emotionalState: "relieved",
-    survivalTip: "In survival situations, prioritize water over food. You can survive weeks without food, but only days without water."
+    survivalTip: "Running water is usually safer than stagnant water."
   },
   {
-    thought: "A wolf! I need to evaluate - fight or flight? My energy is low...",
+    thought: "I hear fish splashing. Protein would help with energy.",
+    chosenAction: "fish",
+    actionDescription: "🎣 Fashioning a simple fishing spear. Patience... patience... STRIKE!",
+    emotionalState: "patient",
+    survivalTip: "Fish are most active at dawn and dusk."
+  },
+  {
+    thought: "I need meat for sustained energy. Time to hunt.",
+    chosenAction: "hunt",
+    actionDescription: "🏹 Moving quietly through the underbrush, tracking animal prints...",
+    emotionalState: "alert",
+    survivalTip: "Always approach prey from downwind to mask your scent."
+  },
+  // Survival actions
+  {
+    thought: "Fire is life out here. Warmth, cooking, safety.",
+    chosenAction: "start_fire",
+    actionDescription: "🔥 Rubbing sticks together... smoke appears... YES! A spark catches!",
+    emotionalState: "triumphant",
+    survivalTip: "Fire provides warmth, light, and keeps predators away."
+  },
+  {
+    thought: "I need better tools to survive long-term.",
+    chosenAction: "craft_tool",
+    actionDescription: "🔨 Sharpening a stone against rock. This will make gathering easier.",
+    emotionalState: "determined",
+    survivalTip: "A good knife is the most important survival tool."
+  },
+  {
+    thought: "I need a weapon for defense. That wolf won't get me.",
+    chosenAction: "craft_weapon",
+    actionDescription: "⚔️ Attaching a sharpened stone to a sturdy branch. A crude but effective spear!",
+    emotionalState: "prepared",
+    survivalTip: "A weapon provides psychological comfort as much as physical defense."
+  },
+  // Combat actions
+  {
+    thought: "No running this time. I must stand my ground!",
     chosenAction: "fight",
-    actionDescription: "I grab a thick branch and stand my ground, making myself appear larger. I shout and wave the branch aggressively!",
-    emotionalState: "terrified but determined",
-    survivalTip: "Against wolves, never run - it triggers their chase instinct. Make noise, appear big, and back away slowly."
+    actionDescription: "⚔️ CHARGING with spear raised! Making loud noises to intimidate!",
+    emotionalState: "fierce",
+    survivalTip: "When fighting, commit fully. Hesitation can be fatal."
+  },
+  {
+    thought: "That thing is too big to fight. Strategic retreat!",
+    chosenAction: "flee",
+    actionDescription: "🏃 Running through the trees! Zigzagging to break line of sight!",
+    emotionalState: "terrified",
+    survivalTip: "Knowing when to run is survival wisdom, not cowardice."
+  },
+  // Rest actions
+  {
+    thought: "I'm exhausted. Even 30 minutes of rest would help.",
+    chosenAction: "rest",
+    actionDescription: "😴 Sitting against a tree, eyes half-closed but still alert...",
+    emotionalState: "exhausted",
+    survivalTip: "Short rests every few hours prevent total exhaustion."
+  },
+  {
+    thought: "Night has fallen. I need real sleep to function tomorrow.",
+    chosenAction: "sleep",
+    actionDescription: "🛏️ Curling up in the shelter, using leaves as insulation...",
+    emotionalState: "vulnerable",
+    survivalTip: "Sleep is crucial for decision-making and immune function."
+  },
+  // Exploration actions
+  {
+    thought: "I should check my surroundings for threats.",
+    chosenAction: "scout",
+    actionDescription: "👁️ Climbing a tree for a better view. Scanning the horizon...",
+    emotionalState: "vigilant",
+    survivalTip: "Regular scouting prevents ambushes and finds resources."
+  },
+  {
+    thought: "There might be better resources or shelter nearby.",
+    chosenAction: "explore",
+    actionDescription: "🧭 Marking my path with broken branches as I venture into unknown territory...",
+    emotionalState: "curious",
+    survivalTip: "Always mark your trail when exploring to find your way back."
+  },
+  // Shelter actions
+  {
+    thought: "A proper shelter is essential for long-term survival.",
+    chosenAction: "build_shelter",
+    actionDescription: "🏚️ Leaning branches against a fallen tree, weaving leaves for the roof...",
+    emotionalState: "productive",
+    survivalTip: "Shelter protects from rain, wind, and retains body heat."
   },
 ];

@@ -5,8 +5,10 @@ import {
   generateSurvivorSystemPrompt,
   DEMO_GOD_RESPONSES,
   DEMO_SURVIVOR_RESPONSES,
+  PlayerStats,
+  WorldState,
+  InventoryItem,
 } from '@/lib/survival-agents';
-import { PlayerStats, WorldState, InventoryItem } from '@/store/survival';
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
 
         const godResponse = await generateGodResponse(gameState);
         sendEvent({ type: 'god_thought', content: godResponse.thought });
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 300)); // Faster!
 
         sendEvent({ type: 'world_event', content: godResponse.worldEvent });
 
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
 
         sendEvent({ type: 'god_intensity', intensity: godResponse.intensity || 5 });
 
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 400)); // Faster!
 
         // Phase 2: Survivor AI responds
         sendEvent({ type: 'phase', phase: 'survivor_thinking' });
@@ -96,7 +98,7 @@ export async function POST(request: NextRequest) {
         });
 
         sendEvent({ type: 'survivor_thought', content: survivorResponse.thought });
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 250)); // Faster!
 
         sendEvent({
           type: 'survivor_action',
@@ -152,9 +154,9 @@ export async function POST(request: NextRequest) {
 }
 
 async function generateGodResponse(gameState: GameTurnRequest) {
-  // Demo mode if no API key
+  // Demo mode if no API key - fast for action!
   if (!process.env.OPENROUTER_API_KEY) {
-    await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
+    await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
     return getRandomDemoGod();
   }
 
@@ -189,9 +191,9 @@ Generate the next world event. Remember: challenge but don't instantly kill. Mak
 }
 
 async function generateSurvivorResponse(gameState: GameTurnRequest) {
-  // Demo mode if no API key
+  // Demo mode if no API key - fast for action!
   if (!process.env.OPENROUTER_API_KEY) {
-    await new Promise(r => setTimeout(r, 1200 + Math.random() * 800));
+    await new Promise(r => setTimeout(r, 300 + Math.random() * 200));
     return getRandomDemoSurvivor();
   }
 
@@ -251,7 +253,7 @@ function calculateActionResults(
 } {
   const hasThreat = worldState.threats && worldState.threats.length > 0;
   const isNight = worldState.timeOfDay === 'night' || worldState.timeOfDay === 'dusk';
-  const isCold = worldState.temperature < 10;
+  const isCold = (worldState.temperature ?? 20) < 10;
   const isStorm = worldState.weather === 'storm' || worldState.weather === 'rain';
 
   // Base success chance modified by conditions

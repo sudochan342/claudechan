@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useSurvivalStore } from '@/store/survival';
-import { PixiGameWorld } from './PixiGameWorld';
+import { PixelGameWorld } from './PixelGameWorld';
 import { PlayerStats } from './PlayerStats';
 import { GameLog } from './GameLog';
 import { AIBrains } from './AIBrain';
@@ -400,7 +400,7 @@ export function SurvivalGame() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
           {/* Main game area */}
           <div className="lg:col-span-3 space-y-5">
-            <PixiGameWorld />
+            <PixelGameWorld />
             <AIBrains />
             <GameLog />
           </div>

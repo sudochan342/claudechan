@@ -37,7 +37,16 @@ interface Particle {
   maxLife: number;
   color: number;
   size: number;
-  type: 'wood' | 'leaf' | 'sparkle' | 'dust' | 'food' | 'water' | 'heart' | 'star' | 'hit';
+  type: 'wood' | 'leaf' | 'sparkle' | 'dust' | 'food' | 'water' | 'heart' | 'star' | 'hit' | 'levelup' | 'critical' | 'coin';
+}
+
+// Achievement popup
+interface Achievement {
+  text: string;
+  icon: string;
+  color: number;
+  life: number;
+  maxLife: number;
 }
 
 // Floating text popup
@@ -95,7 +104,12 @@ export function PixiGameWorld() {
   const frameRef = useRef(0);
   const particlesRef = useRef<Particle[]>([]);
   const floatingTextsRef = useRef<FloatingText[]>([]);
+  const achievementsRef = useRef<Achievement[]>([]);
   const lastActionRef = useRef<string>('');
+  const lastHealthRef = useRef<number>(100);
+  const comboRef = useRef({ count: 0, lastTime: 0, type: '' });
+  const screenShakeRef = useRef({ intensity: 0, duration: 0 });
+  const damageFlashRef = useRef(0);
 
   const staticDataRef = useRef<StaticData>({
     backTrees: [], midTrees: [], frontTrees: [], stars: [], clouds: [],
@@ -141,6 +155,9 @@ export function PixiGameWorld() {
       heart: [0xFF69B4, 0xFF1493, 0xFF6B6B],
       star: [0xFFD700, 0xFFA500, 0xFFFF00],
       hit: [0xFF4444, 0xFF6666, 0xFFAAAA],
+      levelup: [0x00FF00, 0x00FFFF, 0xFFFF00, 0xFF00FF],
+      critical: [0xFF0000, 0xFF4444, 0xFFAA00],
+      coin: [0xFFD700, 0xFFC107, 0xFFEB3B],
     };
 
     for (let i = 0; i < count; i++) {
@@ -163,6 +180,44 @@ export function PixiGameWorld() {
       x, y, text, color, life: 90, maxLife: 90,
     });
   }, []);
+
+  // Spawn achievement
+  const spawnAchievement = useCallback((text: string, icon: string, color: number) => {
+    achievementsRef.current.push({
+      text, icon, color, life: 180, maxLife: 180,
+    });
+  }, []);
+
+  // Trigger screen shake
+  const triggerScreenShake = useCallback((intensity: number, duration: number) => {
+    screenShakeRef.current = { intensity, duration };
+  }, []);
+
+  // Update combo
+  const updateCombo = useCallback((actionType: string) => {
+    const now = Date.now();
+    const combo = comboRef.current;
+
+    if (combo.type === actionType && now - combo.lastTime < 5000) {
+      combo.count++;
+      combo.lastTime = now;
+
+      // Combo milestones
+      if (combo.count === 3) {
+        spawnAchievement('COMBO x3!', '🔥', 0xFF6B6B);
+      } else if (combo.count === 5) {
+        spawnAchievement('COMBO x5!', '⚡', 0xFFD700);
+        triggerScreenShake(3, 10);
+      } else if (combo.count === 10) {
+        spawnAchievement('UNSTOPPABLE!', '💎', 0x00FFFF);
+        triggerScreenShake(5, 15);
+      }
+    } else {
+      combo.count = 1;
+      combo.type = actionType;
+      combo.lastTime = now;
+    }
+  }, [spawnAchievement, triggerScreenShake]);
 
   // Initialize static data
   const initStaticData = useCallback((width: number, height: number) => {
@@ -365,20 +420,26 @@ export function PixiGameWorld() {
         const px = app.screen.width * playerRef.current.x;
         const groundY = app.screen.height * 0.72;
 
+        // Update combo
+        updateCombo(actionType);
+        const combo = comboRef.current;
+        const comboMultiplier = Math.min(combo.count, 5);
+
         switch (actionType) {
           case 'chopping':
             playerRef.current.tool = 'axe';
-            spawnParticles(px + 30, groundY - 60, 'wood', 8);
-            spawnFloatingText(px, groundY - 120, '+1 🪵', 0x8B4513);
+            spawnParticles(px + 30, groundY - 60, 'wood', 8 + comboMultiplier * 2);
+            spawnFloatingText(px, groundY - 120, combo.count > 1 ? `+${combo.count} 🪵` : '+1 🪵', 0x8B4513);
+            triggerScreenShake(2, 5);
             break;
           case 'gathering':
-            spawnParticles(px, groundY - 40, 'leaf', 6);
-            spawnParticles(px, groundY - 40, 'sparkle', 4);
-            spawnFloatingText(px, groundY - 100, '+1 🫐', 0x6B5B95);
+            spawnParticles(px, groundY - 40, 'leaf', 6 + comboMultiplier);
+            spawnParticles(px, groundY - 40, 'sparkle', 4 + comboMultiplier);
+            spawnFloatingText(px, groundY - 100, combo.count > 1 ? `+${combo.count} 🫐` : '+1 🫐', 0x6B5B95);
             break;
           case 'eating':
             spawnParticles(px, groundY - 70, 'food', 5);
-            spawnParticles(px, groundY - 80, 'heart', 3);
+            spawnParticles(px, groundY - 80, 'heart', 3 + comboMultiplier);
             spawnFloatingText(px, groundY - 110, '+10 ❤️', 0xFF6B6B);
             break;
           case 'drinking':
@@ -387,15 +448,19 @@ export function PixiGameWorld() {
             break;
           case 'fighting':
             playerRef.current.tool = 'sword';
-            spawnParticles(px + 40, groundY - 50, 'hit', 10);
-            spawnParticles(px + 40, groundY - 50, 'star', 5);
-            spawnFloatingText(px + 40, groundY - 80, 'POW! 💥', 0xFF4444);
+            const isCritical = Math.random() > 0.7;
+            spawnParticles(px + 40, groundY - 50, 'hit', isCritical ? 15 : 10);
+            spawnParticles(px + 40, groundY - 50, isCritical ? 'critical' : 'star', isCritical ? 8 : 5);
+            spawnFloatingText(px + 40, groundY - 80, isCritical ? 'CRITICAL! 💥' : 'POW! 💥', isCritical ? 0xFF0000 : 0xFF4444);
+            triggerScreenShake(isCritical ? 8 : 4, isCritical ? 15 : 8);
+            if (isCritical) spawnAchievement('CRITICAL HIT!', '⚡', 0xFF4444);
             break;
           case 'building':
             playerRef.current.tool = 'hammer';
             spawnParticles(px, groundY - 50, 'wood', 6);
             spawnParticles(px, groundY - 50, 'dust', 8);
             spawnFloatingText(px, groundY - 100, '🔨 Building!', 0xFFAA00);
+            triggerScreenShake(1, 3);
             break;
           case 'resting':
             spawnParticles(px, groundY - 80, 'sparkle', 3);
@@ -404,11 +469,17 @@ export function PixiGameWorld() {
           case 'fishing':
             playerRef.current.tool = 'rod';
             spawnParticles(px + 50, groundY + 20, 'water', 4);
+            if (Math.random() > 0.5) {
+              setTimeout(() => {
+                spawnFloatingText(px, groundY - 100, '🐟 Caught!', 0x48CAE4);
+                spawnParticles(px, groundY - 50, 'water', 10);
+              }, 1000);
+            }
             break;
         }
       }
     }
-  }, [currentAction, getActionType, spawnParticles, spawnFloatingText]);
+  }, [currentAction, getActionType, spawnParticles, spawnFloatingText, updateCombo, triggerScreenShake, spawnAchievement]);
 
   // Render sky gradient
   const renderSky = useCallback(() => {
@@ -1347,7 +1418,112 @@ export function PixiGameWorld() {
         }
       });
     }
+
+    // Combo counter (top center)
+    const combo = comboRef.current;
+    if (combo.count > 1 && Date.now() - combo.lastTime < 3000) {
+      const comboBg = new Graphics();
+      comboBg.roundRect(width / 2 - 60, 60, 120, 45, 15);
+      comboBg.fill(combo.count >= 5 ? 0xFFD700 : combo.count >= 3 ? 0xFF6B6B : 0x4CAF50);
+      layer.addChild(comboBg);
+
+      const comboTxt = new Text({
+        text: `🔥 COMBO x${combo.count}`,
+        style: new TextStyle({ fontFamily: 'system-ui', fontSize: 16, fontWeight: '900', fill: 0xFFFFFF }),
+      });
+      comboTxt.anchor.set(0.5);
+      comboTxt.x = width / 2;
+      comboTxt.y = 82;
+      layer.addChild(comboTxt);
+    }
+
+    // Damage flash effect
+    if (damageFlashRef.current > 0) {
+      const flash = new Graphics();
+      flash.rect(0, 0, width, height);
+      flash.fill(0xFF0000);
+      flash.alpha = damageFlashRef.current / 20;
+      layer.addChild(flash);
+      damageFlashRef.current--;
+    }
   }, [worldState, inventory]);
+
+  // Render achievements
+  const renderAchievements = useCallback(() => {
+    const app = appRef.current;
+    if (!app) return;
+
+    const layer = app.stage.getChildByLabel('ui') as Container;
+    const width = app.screen.width;
+
+    achievementsRef.current = achievementsRef.current.filter((ach, i) => {
+      ach.life--;
+      if (ach.life <= 0) return false;
+
+      const alpha = Math.min(1, ach.life / 30);
+      const slideIn = Math.min(1, (ach.maxLife - ach.life) / 20);
+      const y = 120 + i * 55;
+      const x = width / 2 - 100 + (1 - slideIn) * 200;
+
+      const bg = new Graphics();
+      bg.roundRect(x, y, 200, 45, 12);
+      bg.fill(0x1a1a2e);
+      bg.alpha = alpha * 0.95;
+      layer.addChild(bg);
+
+      const border = new Graphics();
+      border.roundRect(x, y, 200, 45, 12);
+      border.stroke({ width: 3, color: ach.color });
+      border.alpha = alpha;
+      layer.addChild(border);
+
+      const icon = new Text({
+        text: ach.icon,
+        style: new TextStyle({ fontSize: 24 }),
+      });
+      icon.x = x + 15;
+      icon.y = y + 10;
+      icon.alpha = alpha;
+      layer.addChild(icon);
+
+      const txt = new Text({
+        text: ach.text,
+        style: new TextStyle({ fontFamily: 'system-ui', fontSize: 14, fontWeight: '800', fill: ach.color }),
+      });
+      txt.x = x + 50;
+      txt.y = y + 15;
+      txt.alpha = alpha;
+      layer.addChild(txt);
+
+      return true;
+    });
+  }, []);
+
+  // Damage detection
+  useEffect(() => {
+    if (playerStats.health < lastHealthRef.current) {
+      damageFlashRef.current = 15;
+      triggerScreenShake(6, 12);
+
+      const app = appRef.current;
+      if (app) {
+        const px = app.screen.width * playerRef.current.x;
+        const groundY = app.screen.height * 0.72;
+        spawnParticles(px, groundY - 50, 'hit', 8);
+        spawnFloatingText(px, groundY - 80, `-${Math.round(lastHealthRef.current - playerStats.health)} ❤️`, 0xFF0000);
+      }
+    }
+    lastHealthRef.current = playerStats.health;
+
+    // Survival milestones
+    if (worldState.daysSurvived === 1 && lastHealthRef.current > 0) {
+      spawnAchievement('FIRST DAY SURVIVED!', '🌅', 0x4CAF50);
+    } else if (worldState.daysSurvived === 5) {
+      spawnAchievement('5 DAYS STRONG!', '💪', 0xFFD700);
+    } else if (worldState.daysSurvived === 10) {
+      spawnAchievement('ULTIMATE SURVIVOR!', '👑', 0x00FFFF);
+    }
+  }, [playerStats.health, worldState.daysSurvived, triggerScreenShake, spawnParticles, spawnFloatingText, spawnAchievement]);
 
   // Main render loop
   useEffect(() => {
@@ -1360,6 +1536,20 @@ export function PixiGameWorld() {
       if (time - lastTime >= 16.67) {
         lastTime = time;
         frameRef.current++;
+
+        const app = appRef.current;
+        if (app) {
+          // Apply screen shake
+          const shake = screenShakeRef.current;
+          if (shake.duration > 0) {
+            app.stage.x = (Math.random() - 0.5) * shake.intensity * 2;
+            app.stage.y = (Math.random() - 0.5) * shake.intensity * 2;
+            shake.duration--;
+          } else {
+            app.stage.x = 0;
+            app.stage.y = 0;
+          }
+        }
 
         renderSky();
         renderSkyEffects();
@@ -1378,6 +1568,7 @@ export function PixiGameWorld() {
         renderFloatingText();
         renderWeather();
         renderUI();
+        renderAchievements();
       }
 
       animId = requestAnimationFrame(loop);
@@ -1385,7 +1576,7 @@ export function PixiGameWorld() {
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isLoaded, renderSky, renderSkyEffects, renderClouds, renderMountains, renderTrees, renderWater, renderGround, renderBushes, renderFlowers, renderButterflies, renderBirds, renderPlayer, renderThreats, renderParticles, renderFloatingText, renderWeather, renderUI]);
+  }, [isLoaded, renderSky, renderSkyEffects, renderClouds, renderMountains, renderTrees, renderWater, renderGround, renderBushes, renderFlowers, renderButterflies, renderBirds, renderPlayer, renderThreats, renderParticles, renderFloatingText, renderWeather, renderUI, renderAchievements]);
 
   // Resize handler
   useEffect(() => {

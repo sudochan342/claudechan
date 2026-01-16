@@ -144,7 +144,10 @@ export function PixiGameWorld() {
   });
 
   const [isLoaded, setIsLoaded] = useState(false);
-  const { worldState, playerStats, currentAction } = useSurvivalStore();
+  const { worldState, playerStats, currentAction, isPlaying, isPaused } = useSurvivalStore();
+
+  // Track player position for movement
+  const playerPosRef = useRef({ x: 0.5, targetX: 0.5, direction: 1 });
 
   // Initialize static data
   const initStaticData = useCallback((width: number, height: number) => {
@@ -894,12 +897,31 @@ export function PixiGameWorld() {
     container.label = 'player';
 
     const groundY = app.screen.height * 0.72;
-    const px = app.screen.width / 2;
-    const py = groundY;
+    const width = app.screen.width;
     const frame = frameRef.current;
 
+    // Update player movement when game is playing
+    const isGameActive = isPlaying && !isPaused;
+
+    if (isGameActive) {
+      // Move towards random targets to simulate exploring
+      if (frame % 120 === 0) {
+        playerPosRef.current.targetX = 0.3 + Math.random() * 0.4; // Stay in middle area
+      }
+
+      const dx = playerPosRef.current.targetX - playerPosRef.current.x;
+      if (Math.abs(dx) > 0.01) {
+        playerPosRef.current.x += dx * 0.02;
+        playerPosRef.current.direction = dx > 0 ? 1 : -1;
+      }
+    }
+
+    const px = width * playerPosRef.current.x;
+    const py = groundY;
+
     const breath = Math.sin(frame * 0.05) * 2;
-    const isActive = !!currentAction;
+    const isWalking = isGameActive && Math.abs(playerPosRef.current.targetX - playerPosRef.current.x) > 0.01;
+    const isActive = !!currentAction || isWalking;
     const walk = isActive ? Math.sin(frame * 0.2) : 0;
     const bobY = Math.abs(walk) * 3;
 
@@ -1017,6 +1039,9 @@ export function PixiGameWorld() {
     container.x = px;
     container.y = py;
 
+    // Flip character based on direction
+    container.scale.x = playerPosRef.current.direction;
+
     // Action bubble
     if (currentAction) {
       // Thought bubbles
@@ -1055,7 +1080,7 @@ export function PixiGameWorld() {
     }
 
     layer.addChild(container);
-  }, [playerStats.health, currentAction]);
+  }, [playerStats.health, currentAction, isPlaying, isPaused]);
 
   // Cute enemies
   const renderThreats = useCallback(() => {

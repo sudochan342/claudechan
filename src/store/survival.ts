@@ -9,7 +9,7 @@ export interface PlayerStats {
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: 'god' | 'survivor' | 'system' | 'action';
+  type: 'god' | 'survivor' | 'system' | 'action' | 'advice';
   message: string;
 }
 

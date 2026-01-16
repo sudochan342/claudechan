@@ -4,18 +4,20 @@ import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSurvivalStore, GameEvent } from '@/store/survival';
 
-const eventStyles: Record<GameEvent['type'], { bg: string; border: string; text: string; emoji: string }> = {
+const eventStyles: Record<string, { bg: string; border: string; text: string; emoji: string }> = {
   god: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50', border: 'border-purple-400', text: 'text-purple-700', emoji: '🌲' },
   survivor: { bg: 'bg-gradient-to-r from-cyan-50 to-blue-50', border: 'border-cyan-400', text: 'text-cyan-700', emoji: '🧑' },
   system: { bg: 'bg-gradient-to-r from-gray-50 to-slate-50', border: 'border-gray-400', text: 'text-gray-700', emoji: '⚙️' },
   action: { bg: 'bg-gradient-to-r from-emerald-50 to-green-50', border: 'border-emerald-400', text: 'text-emerald-700', emoji: '▶️' },
+  advice: { bg: 'bg-gradient-to-r from-amber-50 to-orange-50', border: 'border-amber-400', text: 'text-amber-700', emoji: '💡' },
 };
 
-const sourceLabels: Record<GameEvent['type'], { label: string; color: string }> = {
+const sourceLabels: Record<string, { label: string; color: string }> = {
   god: { label: 'GOD', color: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' },
   survivor: { label: 'CLAUDE', color: 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white' },
   system: { label: 'SYSTEM', color: 'bg-gradient-to-r from-gray-400 to-gray-500 text-white' },
   action: { label: 'ACTION', color: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' },
+  advice: { label: 'VIEWER', color: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white' },
 };
 
 function formatTime(timestamp: number): string {
@@ -85,8 +87,8 @@ export function GameLog() {
             </div>
           ) : (
             gameEvents.map((event) => {
-              const style = eventStyles[event.type];
-              const source = sourceLabels[event.type];
+              const style = eventStyles[event.type] || eventStyles.system;
+              const source = sourceLabels[event.type] || sourceLabels.system;
               return (
                 <motion.div
                   key={event.id}

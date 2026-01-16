@@ -9,6 +9,13 @@ interface PumpChatProps {
   usePumpEmbed?: boolean;
 }
 
+interface ChatMessage {
+  id: string;
+  username: string;
+  message: string;
+  color: string;
+}
+
 const FAKE_USERS = [
   { name: 'degen_andy', color: '#f97316' },
   { name: 'pump_it_up', color: '#22c55e' },
@@ -47,10 +54,24 @@ function getRandomMessage(trigger: string = 'general') {
 }
 
 export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePumpEmbed = true }: PumpChatProps) {
-  const { chatMessages, addChatMessage, viewerCount, setViewerCount, isPlaying, gameEvents } = useSurvivalStore();
+  const { viewerCount, isPlaying, gameEvents } = useSurvivalStore();
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [userMessage, setUserMessage] = useState('');
   const [showEmbed, setShowEmbed] = useState(usePumpEmbed);
+  const [localViewerCount, setLocalViewerCount] = useState(viewerCount);
   const chatRef = useRef<HTMLDivElement>(null);
+
+  const addChatMessage = (msg: Omit<ChatMessage, 'id'>) => {
+    const newMsg: ChatMessage = {
+      ...msg,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+    setChatMessages(prev => {
+      const updated = [...prev, newMsg];
+      // Keep last 50 messages
+      return updated.slice(-50);
+    });
+  };
 
   useEffect(() => {
     if (chatRef.current) {
@@ -58,26 +79,29 @@ export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePu
     }
   }, [chatMessages]);
 
+  // Simulate viewer count changes
   useEffect(() => {
     const interval = setInterval(() => {
-      setViewerCount(viewerCount + Math.floor(Math.random() * 20) - 10);
+      setLocalViewerCount(prev => Math.max(100, prev + Math.floor(Math.random() * 20) - 10));
     }, 5000);
     return () => clearInterval(interval);
-  }, [viewerCount, setViewerCount]);
+  }, []);
 
+  // Generate fake chat messages
   useEffect(() => {
     if (!isPlaying || showEmbed) return;
 
     const interval = setInterval(() => {
       const lastEvent = gameEvents[gameEvents.length - 1];
-      let trigger = Math.random() > 0.7 ? 'pump' : 'general'; // More pump talk
+      let trigger = Math.random() > 0.7 ? 'pump' : 'general';
 
       if (lastEvent) {
-        if (lastEvent.type === 'danger') trigger = 'danger';
-        else if (lastEvent.type === 'success') trigger = Math.random() > 0.5 ? 'success' : 'pump';
-        else if (lastEvent.content.toLowerCase().includes('food') || lastEvent.content.toLowerCase().includes('eat') || lastEvent.content.toLowerCase().includes('berr')) trigger = 'food';
-        else if (lastEvent.content.toLowerCase().includes('fight') || lastEvent.content.toLowerCase().includes('attack')) trigger = 'fight';
-        else if (lastEvent.content.toLowerCase().includes('rest') || lastEvent.content.toLowerCase().includes('sleep')) trigger = 'rest';
+        const content = lastEvent.message.toLowerCase();
+        if (content.includes('damage') || content.includes('threat') || content.includes('danger')) trigger = 'danger';
+        else if (content.includes('success') || content.includes('survived')) trigger = Math.random() > 0.5 ? 'success' : 'pump';
+        else if (content.includes('food') || content.includes('eat') || content.includes('berr')) trigger = 'food';
+        else if (content.includes('fight') || content.includes('attack')) trigger = 'fight';
+        else if (content.includes('rest') || content.includes('sleep')) trigger = 'rest';
       }
 
       const user = getRandomUser();
@@ -89,7 +113,7 @@ export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePu
     }, 2000 + Math.random() * 3000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, gameEvents, addChatMessage, showEmbed]);
+  }, [isPlaying, gameEvents, showEmbed]);
 
   const handleSend = () => {
     if (!userMessage.trim()) return;
@@ -143,7 +167,7 @@ export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePu
               transition={{ duration: 2, repeat: Infinity }}
             >
               <span className="text-lg">👁</span>
-              <span className="font-bold text-emerald-700">{Math.max(100, viewerCount).toLocaleString()}</span>
+              <span className="font-bold text-emerald-700">{Math.max(100, localViewerCount).toLocaleString()}</span>
             </motion.div>
           </div>
         </div>
@@ -153,7 +177,7 @@ export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePu
         /* Pump.fun Embed */
         <div className="flex-1 p-4" style={{ minHeight: '400px' }}>
           <div className="w-full h-full rounded-2xl overflow-hidden border-2 border-lime-200">
-            {contractAddress !== 'YOUR_CONTRACT_ADDRESS_HERE' ? (
+            {contractAddress !== 'YOUR_CONTRACT_ADDRESS_HERE' && contractAddress !== 'DEPLOYING...' ? (
               <iframe
                 src={`https://pump.fun/coin/${contractAddress}?embed=chat`}
                 className="w-full h-full"

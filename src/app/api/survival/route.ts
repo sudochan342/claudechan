@@ -5,8 +5,10 @@ import {
   generateSurvivorSystemPrompt,
   DEMO_GOD_RESPONSES,
   DEMO_SURVIVOR_RESPONSES,
+  PlayerStats,
+  WorldState,
+  InventoryItem,
 } from '@/lib/survival-agents';
-import { PlayerStats, WorldState, InventoryItem } from '@/store/survival';
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -251,7 +253,7 @@ function calculateActionResults(
 } {
   const hasThreat = worldState.threats && worldState.threats.length > 0;
   const isNight = worldState.timeOfDay === 'night' || worldState.timeOfDay === 'dusk';
-  const isCold = worldState.temperature < 10;
+  const isCold = (worldState.temperature ?? 20) < 10;
   const isStorm = worldState.weather === 'storm' || worldState.weather === 'rain';
 
   // Base success chance modified by conditions

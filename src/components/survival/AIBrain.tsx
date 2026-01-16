@@ -8,10 +8,20 @@ interface AIBrainPanelProps {
 }
 
 export function AIBrainPanel({ type }: AIBrainPanelProps) {
-  const { godThoughts, survivorThoughts, isPlaying } = useSurvivalStore();
+  const { gameEvents, currentPhase, isPlaying } = useSurvivalStore();
 
   const isGod = type === 'god';
-  const thoughts = isGod ? godThoughts : survivorThoughts;
+
+  // Get the latest thought for this AI type from game events
+  const relevantEvents = gameEvents.filter(e => e.type === type);
+  const latestThought = relevantEvents.length > 0
+    ? relevantEvents[relevantEvents.length - 1].message
+    : null;
+
+  // Check if this AI is currently active
+  const isActive = isGod
+    ? currentPhase === 'god_thinking' || currentPhase === 'god_speaking'
+    : currentPhase === 'survivor_thinking' || currentPhase === 'survivor_speaking';
 
   const config = {
     god: {
@@ -42,6 +52,11 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
 
   const c = config[type];
 
+  // Clean up the message (remove emoji prefixes like "👁️ GOD: ")
+  const displayThought = latestThought
+    ?.replace(/^👁️\s*GOD:\s*/i, '')
+    ?.replace(/^🧑\s*CLAUDE:\s*/i, '');
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -52,8 +67,8 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
       <motion.div
         className={`absolute inset-0 bg-gradient-to-r ${c.gradient} opacity-10`}
         animate={{
-          scale: thoughts ? [1, 1.1, 1] : 1,
-          opacity: thoughts ? [0.1, 0.2, 0.1] : 0.05,
+          scale: isActive ? [1, 1.1, 1] : 1,
+          opacity: isActive ? [0.1, 0.2, 0.1] : 0.05,
         }}
         transition={{ duration: 2, repeat: Infinity }}
       />
@@ -64,7 +79,7 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
           <div className="flex items-center gap-4">
             <motion.div
               className="relative"
-              animate={isGod && thoughts ? { rotate: [0, 10, -10, 0] } : {}}
+              animate={isGod && isActive ? { rotate: [0, 10, -10, 0] } : {}}
               transition={{ duration: 1.5, repeat: Infinity }}
             >
               <motion.span
@@ -76,9 +91,9 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
               </motion.span>
               <motion.div
                 className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
-                  thoughts ? 'bg-gradient-to-r from-yellow-400 to-orange-400' : 'bg-gray-300'
+                  isActive ? 'bg-gradient-to-r from-yellow-400 to-orange-400' : 'bg-gray-300'
                 }`}
-                animate={thoughts ? { scale: [1, 1.3, 1] } : {}}
+                animate={isActive ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 0.8, repeat: Infinity }}
               />
             </motion.div>
@@ -91,7 +106,7 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
           </div>
 
           <AnimatePresence>
-            {thoughts && (
+            {isActive && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -107,7 +122,7 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
         {/* Thought bubble */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border-2 border-gray-100 min-h-[100px] shadow-inner">
           <AnimatePresence mode="wait">
-            {thoughts ? (
+            {displayThought ? (
               <motion.div
                 key="thoughts"
                 initial={{ opacity: 0, y: 10 }}
@@ -122,7 +137,7 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
                 >
                   💭
                 </motion.span>
-                <p className={`text-base font-medium ${c.textColor} italic leading-relaxed`}>{thoughts}</p>
+                <p className={`text-base font-medium ${c.textColor} italic leading-relaxed`}>{displayThought}</p>
               </motion.div>
             ) : (
               <motion.div
@@ -156,8 +171,8 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
                 key={i}
                 className={`w-2 rounded-full bg-gradient-to-t ${c.gradient}`}
                 animate={{
-                  height: thoughts ? [8, 20 + Math.random() * 12, 8] : 8,
-                  opacity: thoughts ? [0.5, 1, 0.5] : 0.3,
+                  height: isActive ? [8, 20 + Math.random() * 12, 8] : 8,
+                  opacity: isActive ? [0.5, 1, 0.5] : 0.3,
                 }}
                 transition={{
                   duration: 0.4,

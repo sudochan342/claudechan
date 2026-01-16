@@ -15,33 +15,33 @@ const QUICK_TIPS = [
   { label: '🗺️ Explore', advice: 'Scout new areas during the day and always mark your path.' },
 ];
 
+interface SentAdvice {
+  id: string;
+  advice: string;
+  timestamp: number;
+}
+
 export function TeachingPanel() {
-  const { isPlaying, userAdvice, addUserAdvice, addChatMessage, addGameEvent } = useSurvivalStore();
+  const { isPlaying } = useSurvivalStore();
   const [customAdvice, setCustomAdvice] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [sentAdvice, setSentAdvice] = useState<SentAdvice[]>([]);
 
   const handleSubmitAdvice = (advice: string) => {
     if (!advice.trim() || !isPlaying) return;
 
-    addUserAdvice(advice);
-    addChatMessage({
-      username: 'Viewer',
-      message: `💡 TIP: ${advice.slice(0, 40)}${advice.length > 40 ? '...' : ''}`,
-      color: '#60a5fa',
-    });
-    addGameEvent({
-      source: 'system',
-      type: 'resource',
-      content: `Viewer advice: "${advice.slice(0, 60)}${advice.length > 60 ? '...' : ''}"`,
-      emoji: '💡',
-    });
+    // Add to local sent advice list (display only for now)
+    const newAdvice: SentAdvice = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      advice,
+      timestamp: Date.now(),
+    };
+    setSentAdvice(prev => [...prev.slice(-2), newAdvice]);
 
     setCustomAdvice('');
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 2000);
   };
-
-  const recentAdvice = userAdvice.slice(-3);
 
   return (
     <motion.div
@@ -61,12 +61,12 @@ export function TeachingPanel() {
           </motion.span>
           <div>
             <h3 className="font-black text-lg bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
-              TEACH CLAUDE
+              SURVIVAL TIPS
             </h3>
             <p className="text-xs font-semibold text-gray-500">Help Claude survive!</p>
           </div>
           <span className="ml-auto px-3 py-1 bg-gradient-to-r from-amber-100 to-orange-100 rounded-full text-xs font-bold text-amber-700">
-            AI Learning
+            Viewer Support
           </span>
         </div>
       </div>
@@ -106,7 +106,7 @@ export function TeachingPanel() {
             <textarea
               value={customAdvice}
               onChange={(e) => setCustomAdvice(e.target.value)}
-              placeholder={isPlaying ? "Type survival advice for Claude..." : "Start the game first!"}
+              placeholder={isPlaying ? "Type survival advice for Claude..." : "Waiting for game to connect..."}
               disabled={!isPlaying}
               className={`w-full px-4 py-3 rounded-xl text-sm resize-none h-24 transition-all font-medium ${
                 isPlaying
@@ -130,30 +130,26 @@ export function TeachingPanel() {
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            🚀 Send Advice to Claude
+            🚀 Send Tip to Chat
           </motion.button>
         </div>
 
-        {/* Recent advice */}
-        {recentAdvice.length > 0 && (
+        {/* Recent advice sent */}
+        {sentAdvice.length > 0 && (
           <div>
             <h4 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-2">
-              <span>📝</span> Recent Advice
+              <span>📝</span> Your Tips
             </h4>
             <div className="space-y-2">
-              {recentAdvice.map((advice) => (
+              {sentAdvice.map((advice) => (
                 <motion.div
                   key={advice.id}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className={`text-xs px-4 py-3 rounded-xl border-2 ${
-                    advice.applied
-                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-300 text-emerald-700'
-                      : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 text-amber-700'
-                  }`}
+                  className="text-xs px-4 py-3 rounded-xl border-2 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 text-amber-700"
                 >
                   <div className="flex items-start gap-2">
-                    <span className="text-lg">{advice.applied ? '✅' : '⏳'}</span>
+                    <span className="text-lg">💡</span>
                     <span className="font-medium">{advice.advice.slice(0, 70)}{advice.advice.length > 70 ? '...' : ''}</span>
                   </div>
                 </motion.div>
@@ -173,7 +169,7 @@ export function TeachingPanel() {
             >
               <span className="text-white font-bold flex items-center justify-center gap-2">
                 <span className="text-xl">✅</span>
-                Advice sent to Claude!
+                Tip submitted!
               </span>
             </motion.div>
           )}

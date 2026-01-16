@@ -4,21 +4,18 @@ import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSurvivalStore, GameEvent } from '@/store/survival';
 
-const eventStyles: Record<GameEvent['type'], { bg: string; border: string; text: string }> = {
-  action: { bg: 'bg-gradient-to-r from-emerald-50 to-green-50', border: 'border-emerald-400', text: 'text-emerald-700' },
-  thought: { bg: 'bg-gradient-to-r from-blue-50 to-cyan-50', border: 'border-blue-400', text: 'text-blue-700' },
-  environmental: { bg: 'bg-gradient-to-r from-purple-50 to-violet-50', border: 'border-purple-400', text: 'text-purple-700' },
-  danger: { bg: 'bg-gradient-to-r from-red-50 to-rose-50', border: 'border-red-400', text: 'text-red-700' },
-  success: { bg: 'bg-gradient-to-r from-green-50 to-emerald-50', border: 'border-green-400', text: 'text-green-700' },
-  failure: { bg: 'bg-gradient-to-r from-orange-50 to-amber-50', border: 'border-orange-400', text: 'text-orange-700' },
-  resource: { bg: 'bg-gradient-to-r from-yellow-50 to-amber-50', border: 'border-yellow-400', text: 'text-yellow-700' },
+const eventStyles: Record<GameEvent['type'], { bg: string; border: string; text: string; emoji: string }> = {
+  god: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50', border: 'border-purple-400', text: 'text-purple-700', emoji: '🌲' },
+  survivor: { bg: 'bg-gradient-to-r from-cyan-50 to-blue-50', border: 'border-cyan-400', text: 'text-cyan-700', emoji: '🧑' },
+  system: { bg: 'bg-gradient-to-r from-gray-50 to-slate-50', border: 'border-gray-400', text: 'text-gray-700', emoji: '⚙️' },
+  action: { bg: 'bg-gradient-to-r from-emerald-50 to-green-50', border: 'border-emerald-400', text: 'text-emerald-700', emoji: '▶️' },
 };
 
-const sourceColors: Record<GameEvent['source'], string> = {
-  god: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
-  survivor: 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white',
-  system: 'bg-gradient-to-r from-gray-400 to-gray-500 text-white',
-  world: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white',
+const sourceLabels: Record<GameEvent['type'], { label: string; color: string }> = {
+  god: { label: 'GOD', color: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' },
+  survivor: { label: 'CLAUDE', color: 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white' },
+  system: { label: 'SYSTEM', color: 'bg-gradient-to-r from-gray-400 to-gray-500 text-white' },
+  action: { label: 'ACTION', color: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' },
 };
 
 function formatTime(timestamp: number): string {
@@ -89,6 +86,7 @@ export function GameLog() {
           ) : (
             gameEvents.map((event) => {
               const style = eventStyles[event.type];
+              const source = sourceLabels[event.type];
               return (
                 <motion.div
                   key={event.id}
@@ -105,16 +103,16 @@ export function GameLog() {
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', stiffness: 500 }}
                     >
-                      {event.emoji}
+                      {style.emoji}
                     </motion.span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${sourceColors[event.source]}`}>
-                          {event.source}
+                        <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${source.color}`}>
+                          {source.label}
                         </span>
                         <span className="text-xs font-medium text-gray-400">{formatTime(event.timestamp)}</span>
                       </div>
-                      <p className={`text-sm font-medium ${style.text}`}>{event.content}</p>
+                      <p className={`text-sm font-medium ${style.text}`}>{event.message}</p>
                     </div>
                   </div>
                 </motion.div>

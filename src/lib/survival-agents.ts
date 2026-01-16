@@ -1,4 +1,27 @@
-import { PlayerStats, WorldState, InventoryItem } from '@/store/survival';
+// Local type definitions for survival game
+export interface PlayerStats {
+  health: number;
+  hunger: number;
+  energy: number;
+  thirst?: number;
+  morale?: number;
+}
+
+export interface WorldState {
+  timeOfDay: 'dawn' | 'day' | 'dusk' | 'night';
+  weather: 'clear' | 'rain' | 'storm' | 'cloudy';
+  daysSurvived: number;
+  threats: string[];
+  temperature?: number;
+  currentLocation?: string;
+  resources?: string[];
+}
+
+export interface InventoryItem {
+  name: string;
+  icon: string;
+  quantity: number;
+}
 
 export interface SurvivalAgent {
   id: string;
@@ -131,18 +154,18 @@ export function generateSurvivorSystemPrompt(
 CURRENT SITUATION:
 - Time: ${worldState.timeOfDay}
 - Weather: ${worldState.weather}
-- Temperature: ${worldState.temperature}°C
+- Temperature: ${worldState.temperature ?? 20}°C
 - Days Survived: ${worldState.daysSurvived}
-- Location: ${worldState.currentLocation}
+- Location: ${worldState.currentLocation ?? 'Unknown'}
 - Visible Threats: ${worldState.threats.length > 0 ? worldState.threats.join(', ') : 'None'}
-- Available Resources: ${worldState.resources.join(', ')}
+- Available Resources: ${(worldState.resources || []).join(', ') || 'Unknown'}
 
 YOUR STATUS:
 - Health: ${playerStats.health}% ${playerStats.health < 30 ? '⚠️ CRITICAL' : ''}
 - Hunger: ${playerStats.hunger}% ${playerStats.hunger < 30 ? '⚠️ STARVING' : ''}
-- Thirst: ${playerStats.thirst}% ${playerStats.thirst < 30 ? '⚠️ DEHYDRATED' : ''}
+- Thirst: ${playerStats.thirst ?? 100}% ${(playerStats.thirst ?? 100) < 30 ? '⚠️ DEHYDRATED' : ''}
 - Energy: ${playerStats.energy}% ${playerStats.energy < 30 ? '⚠️ EXHAUSTED' : ''}
-- Morale: ${playerStats.morale}%
+- Morale: ${playerStats.morale ?? 100}%
 
 INVENTORY: ${inventoryStr}
 

@@ -3,259 +3,191 @@ import { create } from 'zustand';
 export interface PlayerStats {
   health: number;
   hunger: number;
-  thirst: number;
   energy: number;
-  morale: number;
-}
-
-export interface InventoryItem {
-  id: string;
-  name: string;
-  quantity: number;
-  icon: string;
-  type: 'resource' | 'tool' | 'food' | 'weapon';
 }
 
 export interface GameEvent {
   id: string;
   timestamp: number;
-  source: 'god' | 'survivor' | 'system' | 'world';
-  type: 'action' | 'thought' | 'environmental' | 'danger' | 'success' | 'failure' | 'resource';
-  content: string;
-  emoji?: string;
+  type: 'god' | 'survivor' | 'system' | 'action';
+  message: string;
 }
 
 export interface WorldState {
   timeOfDay: 'dawn' | 'day' | 'dusk' | 'night';
-  weather: 'clear' | 'cloudy' | 'rain' | 'storm';
-  temperature: number;
+  weather: 'clear' | 'rain' | 'storm';
   daysSurvived: number;
-  currentLocation: string;
   threats: string[];
-  resources: string[];
 }
 
-export interface ChatMessage {
-  id: string;
-  username: string;
-  message: string;
-  timestamp: number;
-  color: string;
-}
-
-export interface UserAdvice {
-  id: string;
-  advice: string;
-  timestamp: number;
-  applied: boolean;
+export interface SharedGameState {
+  daysSurvived: number;
+  timeOfDay: 'dawn' | 'day' | 'dusk' | 'night';
+  weather: 'clear' | 'rain' | 'storm';
+  threats: string[];
+  health: number;
+  hunger: number;
+  energy: number;
+  inventory: Record<string, number>;
+  currentAction: string;
+  currentPhase: 'god_thinking' | 'god_speaking' | 'survivor_thinking' | 'survivor_speaking' | 'idle';
+  logs: { id: string; type: string; message: string; timestamp: number }[];
+  isRunning: boolean;
+  lastUpdate: number;
+  turnCount: number;
 }
 
 interface SurvivalState {
+  // Connection state
+  isConnected: boolean;
+  isConnecting: boolean;
+  connectionError: string | null;
+
   // Game status
   isPlaying: boolean;
   isPaused: boolean;
-  gameSpeed: 1 | 2 | 3;
 
   // Player
   playerStats: PlayerStats;
-  inventory: InventoryItem[];
+  inventory: Record<string, number>;
 
   // World
   worldState: WorldState;
 
   // Events & logs
   gameEvents: GameEvent[];
-  godThoughts: string;
-  survivorThoughts: string;
   currentAction: string;
+  currentPhase: string;
 
-  // Chat
-  chatMessages: ChatMessage[];
+  // Viewer count (simulated)
   viewerCount: number;
 
-  // User advice/teaching
-  userAdvice: UserAdvice[];
-
   // Actions
-  startGame: () => void;
-  pauseGame: () => void;
-  resumeGame: () => void;
-  endGame: () => void;
-  setGameSpeed: (speed: 1 | 2 | 3) => void;
-
-  updatePlayerStats: (stats: Partial<PlayerStats>) => void;
-  addInventoryItem: (item: InventoryItem) => void;
-  removeInventoryItem: (itemId: string, quantity?: number) => void;
-
-  updateWorldState: (state: Partial<WorldState>) => void;
-
-  addGameEvent: (event: Omit<GameEvent, 'id' | 'timestamp'>) => void;
-  setGodThoughts: (thoughts: string) => void;
-  setSurvivorThoughts: (thoughts: string) => void;
-  setCurrentAction: (action: string) => void;
-
-  addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  setViewerCount: (count: number) => void;
-
-  addUserAdvice: (advice: string) => void;
-  markAdviceApplied: (id: string) => void;
-  getActiveAdvice: () => UserAdvice[];
-
-  resetGame: () => void;
+  connect: () => void;
+  disconnect: () => void;
+  syncFromServer: (serverState: SharedGameState) => void;
 }
 
 const initialPlayerStats: PlayerStats = {
   health: 100,
-  hunger: 100,
-  thirst: 100,
-  energy: 100,
-  morale: 75,
+  hunger: 80,
+  energy: 90,
 };
 
 const initialWorldState: WorldState = {
   timeOfDay: 'dawn',
   weather: 'clear',
-  temperature: 18,
   daysSurvived: 0,
-  currentLocation: 'Forest Clearing',
   threats: [],
-  resources: ['wood', 'berries', 'water'],
 };
 
-const initialInventory: InventoryItem[] = [
-  { id: 'stone', name: 'Stone', quantity: 2, icon: '🪨', type: 'resource' },
-  { id: 'stick', name: 'Stick', quantity: 3, icon: '🪵', type: 'resource' },
-];
+// Store the EventSource connection outside the store
+let eventSource: EventSource | null = null;
 
 export const useSurvivalStore = create<SurvivalState>((set, get) => ({
   // Initial state
+  isConnected: false,
+  isConnecting: false,
+  connectionError: null,
+
   isPlaying: false,
   isPaused: false,
-  gameSpeed: 1,
 
   playerStats: initialPlayerStats,
-  inventory: initialInventory,
+  inventory: { wood: 2, berries: 3 },
 
   worldState: initialWorldState,
 
   gameEvents: [],
-  godThoughts: '',
-  survivorThoughts: '',
   currentAction: '',
+  currentPhase: 'idle',
 
-  chatMessages: [],
-  viewerCount: Math.floor(Math.random() * 500) + 100,
-  userAdvice: [],
+  viewerCount: Math.floor(Math.random() * 200) + 50,
 
-  // Actions
-  startGame: () => set({ isPlaying: true, isPaused: false }),
-  pauseGame: () => set({ isPaused: true }),
-  resumeGame: () => set({ isPaused: false }),
-  endGame: () => set({ isPlaying: false, isPaused: false }),
-  setGameSpeed: (speed) => set({ gameSpeed: speed }),
+  // Connect to the shared game stream
+  connect: () => {
+    if (eventSource || get().isConnecting) return;
 
-  updatePlayerStats: (stats) => set((state) => ({
-    playerStats: { ...state.playerStats, ...stats }
-  })),
+    set({ isConnecting: true, connectionError: null });
 
-  addInventoryItem: (item) => set((state) => {
-    const existing = state.inventory.find(i => i.id === item.id);
-    if (existing) {
-      return {
-        inventory: state.inventory.map(i =>
-          i.id === item.id
-            ? { ...i, quantity: i.quantity + item.quantity }
-            : i
-        )
+    try {
+      eventSource = new EventSource('/api/game-stream');
+
+      eventSource.onopen = () => {
+        set({ isConnected: true, isConnecting: false, isPlaying: true });
+        console.log('[GameStream] Connected to shared game');
       };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const serverState: SharedGameState = JSON.parse(event.data);
+          get().syncFromServer(serverState);
+        } catch (e) {
+          console.error('[GameStream] Failed to parse state:', e);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('[GameStream] Connection error:', error);
+        set({
+          isConnected: false,
+          isConnecting: false,
+          connectionError: 'Connection lost. Retrying...',
+        });
+
+        // Reconnect after delay
+        eventSource?.close();
+        eventSource = null;
+
+        setTimeout(() => {
+          if (!get().isConnected) {
+            get().connect();
+          }
+        }, 3000);
+      };
+    } catch (e) {
+      set({
+        isConnecting: false,
+        connectionError: 'Failed to connect to game server',
+      });
     }
-    return { inventory: [...state.inventory, item] };
-  }),
-
-  removeInventoryItem: (itemId, quantity = 1) => set((state) => {
-    const item = state.inventory.find(i => i.id === itemId);
-    if (!item) return state;
-
-    if (item.quantity <= quantity) {
-      return { inventory: state.inventory.filter(i => i.id !== itemId) };
-    }
-    return {
-      inventory: state.inventory.map(i =>
-        i.id === itemId
-          ? { ...i, quantity: i.quantity - quantity }
-          : i
-      )
-    };
-  }),
-
-  updateWorldState: (worldState) => set((state) => ({
-    worldState: { ...state.worldState, ...worldState }
-  })),
-
-  addGameEvent: (event) => set((state) => ({
-    gameEvents: [
-      ...state.gameEvents,
-      {
-        ...event,
-        id: `event-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        timestamp: Date.now(),
-      }
-    ].slice(-100) // Keep last 100 events
-  })),
-
-  setGodThoughts: (thoughts) => set({ godThoughts: thoughts }),
-  setSurvivorThoughts: (thoughts) => set({ survivorThoughts: thoughts }),
-  setCurrentAction: (action) => set({ currentAction: action }),
-
-  addChatMessage: (message) => set((state) => ({
-    chatMessages: [
-      ...state.chatMessages,
-      {
-        ...message,
-        id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        timestamp: Date.now(),
-      }
-    ].slice(-200) // Keep last 200 messages
-  })),
-
-  setViewerCount: (count) => set({ viewerCount: count }),
-
-  addUserAdvice: (advice) => set((state) => ({
-    userAdvice: [
-      ...state.userAdvice,
-      {
-        id: `advice-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        advice,
-        timestamp: Date.now(),
-        applied: false,
-      }
-    ].slice(-20) // Keep last 20 pieces of advice
-  })),
-
-  markAdviceApplied: (id) => set((state) => ({
-    userAdvice: state.userAdvice.map(a =>
-      a.id === id ? { ...a, applied: true } : a
-    )
-  })),
-
-  getActiveAdvice: () => {
-    const state = get();
-    return state.userAdvice.filter(a => !a.applied).slice(-5);
   },
 
-  resetGame: () => set({
-    isPlaying: false,
-    isPaused: false,
-    gameSpeed: 1,
-    playerStats: initialPlayerStats,
-    inventory: initialInventory,
-    worldState: initialWorldState,
-    gameEvents: [],
-    godThoughts: '',
-    survivorThoughts: '',
-    currentAction: '',
-    chatMessages: [],
-    viewerCount: Math.floor(Math.random() * 500) + 100,
-    userAdvice: [],
-  }),
+  disconnect: () => {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    set({ isConnected: false, isPlaying: false });
+  },
+
+  // Sync local state from server
+  syncFromServer: (serverState: SharedGameState) => {
+    // Convert server logs to game events
+    const gameEvents: GameEvent[] = serverState.logs.map(log => ({
+      id: log.id,
+      timestamp: log.timestamp,
+      type: log.type as GameEvent['type'],
+      message: log.message,
+    }));
+
+    set({
+      isPlaying: serverState.isRunning,
+      playerStats: {
+        health: serverState.health,
+        hunger: serverState.hunger,
+        energy: serverState.energy,
+      },
+      inventory: serverState.inventory,
+      worldState: {
+        timeOfDay: serverState.timeOfDay,
+        weather: serverState.weather,
+        daysSurvived: serverState.daysSurvived,
+        threats: serverState.threats,
+      },
+      gameEvents,
+      currentAction: serverState.currentAction,
+      currentPhase: serverState.currentPhase,
+    });
+  },
 }));

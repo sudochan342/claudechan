@@ -43,8 +43,28 @@ function StatBar({ label, value, icon, gradient, bgColor }: StatBarProps) {
   );
 }
 
+// Icons for inventory items
+const ITEM_ICONS: Record<string, string> = {
+  wood: '🪵',
+  berries: '🫐',
+  water: '💧',
+  meat: '🍖',
+  fish: '🐟',
+  stone: '🪨',
+  tool: '🔨',
+  spear: '🔱',
+  fire: '🔥',
+};
+
 export function PlayerStats() {
   const { playerStats, inventory, worldState } = useSurvivalStore();
+
+  // Convert inventory object to array for display
+  const inventoryItems = Object.entries(inventory).map(([name, quantity]) => ({
+    name,
+    quantity,
+    icon: ITEM_ICONS[name] || '📦',
+  }));
 
   return (
     <motion.div
@@ -107,25 +127,11 @@ export function PlayerStats() {
           bgColor="bg-orange-100"
         />
         <StatBar
-          label="Thirst"
-          value={playerStats.thirst}
-          icon="💧"
-          gradient="bg-gradient-to-r from-blue-500 via-cyan-500 to-teal-500"
-          bgColor="bg-blue-100"
-        />
-        <StatBar
           label="Energy"
           value={playerStats.energy}
           icon="⚡"
           gradient="bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400"
           bgColor="bg-yellow-100"
-        />
-        <StatBar
-          label="Morale"
-          value={playerStats.morale}
-          icon="🧠"
-          gradient="bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500"
-          bgColor="bg-purple-100"
         />
       </div>
 
@@ -136,14 +142,14 @@ export function PlayerStats() {
             <span>🎒</span> Inventory
           </h4>
           <span className="px-3 py-1 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full text-xs font-bold text-emerald-700">
-            {inventory.length} items
+            {inventoryItems.length} items
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {inventory.length > 0 ? (
-            inventory.map((item) => (
+          {inventoryItems.length > 0 ? (
+            inventoryItems.map((item) => (
               <motion.div
-                key={item.id}
+                key={item.name}
                 className="flex items-center gap-2 bg-gradient-to-r from-gray-50 to-gray-100 px-3 py-2 rounded-xl border-2 border-gray-200 shadow-sm"
                 whileHover={{ scale: 1.05, y: -2 }}
                 title={item.name}
@@ -161,7 +167,7 @@ export function PlayerStats() {
       </div>
 
       {/* Warnings */}
-      {(playerStats.health < 30 || playerStats.hunger < 30 || playerStats.thirst < 30 || playerStats.energy < 30) && (
+      {(playerStats.health < 30 || playerStats.hunger < 30 || playerStats.energy < 30) && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -180,7 +186,6 @@ export function PlayerStats() {
               <div className="text-sm font-medium opacity-90">
                 {playerStats.health < 30 && 'CRITICAL HEALTH! '}
                 {playerStats.hunger < 30 && 'STARVING! '}
-                {playerStats.thirst < 30 && 'DEHYDRATED! '}
                 {playerStats.energy < 30 && 'EXHAUSTED! '}
               </div>
             </div>

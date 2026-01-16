@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useSurvivalStore } from '@/store/survival';
 import { PixelGameWorld } from './PixelGameWorld';
@@ -11,54 +11,42 @@ import { PumpChat } from './PumpChat';
 import { TeachingPanel } from './TeachingPanel';
 import { TokenInfo } from './TokenInfo';
 
-// Configure your token here
+// Token config - set these in Vercel Environment Variables
+// NEXT_PUBLIC_CONTRACT_ADDRESS - your Pump.fun CA
+// NEXT_PUBLIC_TOKEN_SYMBOL - your token symbol
+// NEXT_PUBLIC_TWITTER_URL - your Twitter/X link
+// NEXT_PUBLIC_TELEGRAM_URL - your Telegram link
 const TOKEN_CONFIG = {
-  contractAddress: 'YOUR_CONTRACT_ADDRESS_HERE', // Replace with your actual CA
-  tokenSymbol: '$CLAUDE',
-  twitterUrl: '#',
-  telegramUrl: '#',
+  contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || 'DEPLOYING...',
+  tokenSymbol: process.env.NEXT_PUBLIC_TOKEN_SYMBOL || '$CLAUDE',
+  twitterUrl: process.env.NEXT_PUBLIC_TWITTER_URL || '#',
+  telegramUrl: process.env.NEXT_PUBLIC_TELEGRAM_URL || '#',
 };
 
-// Background music URLs (royalty free)
+// Background music
 const MUSIC_TRACKS = [
   'https://assets.mixkit.co/music/preview/mixkit-forest-treasure-140.mp3',
-  'https://assets.mixkit.co/music/preview/mixkit-serene-view-443.mp3',
 ];
 
 export function SurvivalGame() {
   const {
     isPlaying,
-    isPaused,
-    gameSpeed,
+    isConnected,
+    isConnecting,
+    connectionError,
     playerStats,
     worldState,
-    inventory,
     gameEvents,
-    startGame,
-    pauseGame,
-    resumeGame,
-    endGame,
-    setGameSpeed,
-    updatePlayerStats,
-    updateWorldState,
-    addGameEvent,
-    setGodThoughts,
-    setSurvivorThoughts,
-    setCurrentAction,
-    addInventoryItem,
-    addChatMessage,
-    resetGame,
-    getActiveAdvice,
-    markAdviceApplied,
+    currentAction,
+    currentPhase,
+    viewerCount,
+    connect,
   } = useSurvivalStore();
 
-  const [turnNumber, setTurnNumber] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.3);
-  const turnIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const hasAutoStarted = useRef(false);
+  const hasConnected = useRef(false);
 
   // Initialize audio
   useEffect(() => {
@@ -87,169 +75,28 @@ export function SurvivalGame() {
     }
   }, [musicEnabled, musicVolume]);
 
-  // Auto-start game on mount
+  // Connect to shared game on mount
   useEffect(() => {
-    if (!hasAutoStarted.current) {
-      hasAutoStarted.current = true;
-      setTimeout(() => {
-        resetGame();
-        startGame();
-        addGameEvent({
-          source: 'system',
-          type: 'environmental',
-          content: '🌅 LIVE on Pump.fun! Claude begins survival...',
-          emoji: '🌅'
-        });
-        addChatMessage({
-          username: 'System',
-          message: '🎮 LIVE! Watch Claude survive in the forest!',
-          color: '#4caf50'
-        });
-      }, 500);
+    if (!hasConnected.current) {
+      hasConnected.current = true;
+      connect();
     }
-  }, [resetGame, startGame, addGameEvent, addChatMessage]);
+  }, [connect]);
 
-  const processTurn = useCallback(async () => {
-    if (!isPlaying || isPaused || isProcessing) return;
-
-    setIsProcessing(true);
-
-    try {
-      const activeAdvice = getActiveAdvice();
-
-      const response = await fetch('/api/survival', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          worldState,
-          playerStats,
-          inventory,
-          recentEvents: gameEvents.slice(-5).map(e => e.content),
-          turnNumber,
-          userAdvice: activeAdvice.map(a => ({ advice: a.advice })),
-        }),
-      });
-
-      activeAdvice.forEach(a => markAdviceApplied(a.id));
-
-      if (!response.ok) throw new Error('Game API error');
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No reader');
-
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              switch (data.type) {
-                case 'god_thought':
-                  setGodThoughts(data.content);
-                  break;
-                case 'world_event':
-                  addGameEvent({ source: 'god', type: 'environmental', content: data.content, emoji: '⚡' });
-                  break;
-                case 'world_state_change':
-                  if (data.changes) updateWorldState(data.changes);
-                  break;
-                case 'player_stat_change':
-                  if (data.changes) updatePlayerStats(data.changes);
-                  break;
-                case 'threat_spawned':
-                  updateWorldState({ threats: [...worldState.threats, data.threat] });
-                  addGameEvent({ source: 'god', type: 'danger', content: `⚠️ ${data.threat} appeared!`, emoji: '⚠️' });
-                  break;
-                case 'survivor_thought':
-                  setSurvivorThoughts(data.content);
-                  break;
-                case 'survivor_action':
-                  setCurrentAction(data.action);
-                  addGameEvent({ source: 'survivor', type: 'action', content: `🎯 ${data.description}`, emoji: '🎯' });
-                  break;
-                case 'action_result':
-                  if (data.statChanges) updatePlayerStats(data.statChanges);
-                  if (data.inventoryChanges?.add) {
-                    data.inventoryChanges.add.forEach((item: string) => {
-                      addInventoryItem({
-                        id: item,
-                        name: item.charAt(0).toUpperCase() + item.slice(1),
-                        quantity: 1,
-                        icon: getItemIcon(item),
-                        type: getItemType(item),
-                      });
-                    });
-                  }
-                  addGameEvent({ source: 'system', type: data.success ? 'success' : 'failure', content: data.message, emoji: data.success ? '✅' : '❌' });
-                  break;
-                case 'turn_complete':
-                  setTurnNumber(data.turnNumber);
-                  setCurrentAction('');
-                  if (data.turnNumber % 4 === 0) progressTime();
-                  break;
-              }
-            } catch (e) {
-              console.error('Parse error:', e);
-            }
-          }
-        }
-      }
-
-      // Check death - auto restart
-      if (playerStats.health <= 0) {
-        addGameEvent({ source: 'system', type: 'failure', content: `💀 Claude survived ${worldState.daysSurvived} days. Restarting...`, emoji: '💀' });
-        addChatMessage({ username: 'System', message: `💀 RIP! Claude survived ${worldState.daysSurvived} days! Restarting...`, color: '#f44336' });
-
-        // Auto restart after death
-        setTimeout(() => {
-          resetGame();
-          startGame();
-          addGameEvent({ source: 'system', type: 'environmental', content: '🌅 New run begins!', emoji: '🌅' });
-        }, 3000);
-      }
-
-    } catch (error) {
-      console.error('Turn error:', error);
-    } finally {
-      setIsProcessing(false);
+  // Get phase display text
+  const getPhaseText = () => {
+    switch (currentPhase) {
+      case 'god_thinking': return '👁️ GOD is watching...';
+      case 'god_speaking': return '👁️ GOD speaks!';
+      case 'survivor_thinking': return '🤔 Claude is thinking...';
+      case 'survivor_speaking': return '🎯 Claude acts!';
+      default: return '⏳ Waiting...';
     }
-  }, [isPlaying, isPaused, isProcessing, worldState, playerStats, inventory, gameEvents, turnNumber, updateWorldState, updatePlayerStats, addGameEvent, setGodThoughts, setSurvivorThoughts, setCurrentAction, addInventoryItem, addChatMessage, getActiveAdvice, markAdviceApplied, resetGame, startGame]);
-
-  const progressTime = useCallback(() => {
-    const times: Array<'dawn' | 'day' | 'dusk' | 'night'> = ['dawn', 'day', 'dusk', 'night'];
-    const currentIndex = times.indexOf(worldState.timeOfDay);
-    const nextIndex = (currentIndex + 1) % times.length;
-    updateWorldState({
-      timeOfDay: times[nextIndex],
-      daysSurvived: nextIndex === 0 ? worldState.daysSurvived + 1 : worldState.daysSurvived,
-    });
-  }, [worldState.timeOfDay, worldState.daysSurvived, updateWorldState]);
-
-  // Game loop - faster for more action!
-  useEffect(() => {
-    if (isPlaying && !isPaused) {
-      // Much faster turns: 5 seconds at 1x, 2.5s at 2x, 1.7s at 3x
-      const interval = 5000 / gameSpeed;
-      turnIntervalRef.current = setInterval(processTurn, interval);
-      // First turn starts quickly
-      setTimeout(processTurn, 800);
-    }
-    return () => {
-      if (turnIntervalRef.current) clearInterval(turnIntervalRef.current);
-    };
-  }, [isPlaying, isPaused, gameSpeed, processTurn]);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-lime-400 via-emerald-400 to-teal-500">
-      {/* Simple animated background */}
+      {/* Animated background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-yellow-300/30 rounded-full blur-3xl animate-pulse" />
         <div className="absolute top-1/2 -left-40 w-80 h-80 bg-cyan-400/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -283,27 +130,38 @@ export function SurvivalGame() {
 
               {/* LIVE indicator */}
               <motion.div
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-xl shadow-lg"
-                animate={{ scale: [1, 1.05, 1] }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg ${
+                  isConnected
+                    ? 'bg-gradient-to-r from-red-500 to-orange-500'
+                    : 'bg-gray-400'
+                }`}
+                animate={{ scale: isConnected ? [1, 1.05, 1] : 1 }}
                 transition={{ duration: 1.5, repeat: Infinity }}
               >
                 <motion.div
                   className="w-3 h-3 bg-white rounded-full"
-                  animate={{ opacity: [1, 0.5, 1] }}
+                  animate={{ opacity: isConnected ? [1, 0.5, 1] : 0.5 }}
                   transition={{ duration: 0.8, repeat: Infinity }}
                 />
-                <span className="text-white font-black text-sm">LIVE</span>
+                <span className="text-white font-black text-sm">
+                  {isConnecting ? 'CONNECTING...' : isConnected ? 'LIVE' : 'OFFLINE'}
+                </span>
               </motion.div>
 
-              {/* VS Badge */}
-              <div className="hidden md:flex items-center gap-2">
-                <div className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold text-sm">
-                  🌲 FOREST
-                </div>
-                <span className="text-xl">⚔️</span>
-                <div className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-xl font-bold text-sm">
-                  🤖 CLAUDE
-                </div>
+              {/* Phase indicator */}
+              {isConnected && (
+                <motion.div
+                  className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-black/80 text-white rounded-xl font-bold text-sm"
+                  animate={{ opacity: [0.7, 1, 0.7] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  {getPhaseText()}
+                </motion.div>
+              )}
+
+              {/* Viewer count */}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-purple-500/20 text-purple-700 rounded-xl font-bold text-sm">
+                👥 {viewerCount} watching
               </div>
             </div>
 
@@ -323,7 +181,6 @@ export function SurvivalGame() {
                 {musicEnabled ? '🎵 ON' : '🔇 OFF'}
               </motion.button>
 
-              {/* Volume slider when music is on */}
               {musicEnabled && (
                 <input
                   type="range"
@@ -335,39 +192,6 @@ export function SurvivalGame() {
                   className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
               )}
-
-              {/* Speed controls */}
-              <div className="flex items-center gap-1 bg-white rounded-xl p-1 shadow-md border-2 border-gray-100">
-                {[1, 2, 3].map((speed) => (
-                  <motion.button
-                    key={speed}
-                    onClick={() => setGameSpeed(speed as 1 | 2 | 3)}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-black transition-all ${
-                      gameSpeed === speed
-                        ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                  >
-                    {speed}x
-                  </motion.button>
-                ))}
-              </div>
-
-              {/* Pause/Play */}
-              <motion.button
-                onClick={isPaused ? resumeGame : pauseGame}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className={`px-5 py-2 rounded-xl font-bold text-sm ${
-                  isPaused
-                    ? 'bg-gradient-to-r from-lime-500 to-emerald-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                {isPaused ? '▶️ Play' : '⏸️ Pause'}
-              </motion.button>
 
               {/* Social Links */}
               <div className="hidden sm:flex items-center gap-2">
@@ -394,6 +218,13 @@ export function SurvivalGame() {
           </div>
         </div>
       </header>
+
+      {/* Connection error banner */}
+      {connectionError && (
+        <div className="bg-red-500 text-white text-center py-2 font-bold">
+          {connectionError}
+        </div>
+      )}
 
       {/* Main content */}
       <main className="relative max-w-7xl mx-auto px-4 py-6">
@@ -470,22 +301,4 @@ export function SurvivalGame() {
       </footer>
     </div>
   );
-}
-
-function getItemIcon(item: string): string {
-  const icons: Record<string, string> = {
-    wood: '🪵', stone: '🪨', berries: '🫐', water: '💧',
-    meat: '🥩', fish: '🐟', tool: '🔧', spear: '🔱',
-    stick: '🪵', rope: '🪢', shelter: '🏠', fire: '🔥',
-  };
-  return icons[item] || '📦';
-}
-
-function getItemType(item: string): 'resource' | 'tool' | 'food' | 'weapon' {
-  const types: Record<string, 'resource' | 'tool' | 'food' | 'weapon'> = {
-    wood: 'resource', stone: 'resource', stick: 'resource', rope: 'resource',
-    berries: 'food', meat: 'food', fish: 'food', water: 'food',
-    tool: 'tool', spear: 'weapon',
-  };
-  return types[item] || 'resource';
 }

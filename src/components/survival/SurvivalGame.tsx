@@ -16,8 +16,8 @@ export function SurvivalGame() {
     isPaused,
     gameSpeed,
     playerStats,
-    inventory,
     worldState,
+    inventory,
     gameEvents,
     startGame,
     pauseGame,
@@ -33,7 +33,6 @@ export function SurvivalGame() {
     addInventoryItem,
     addChatMessage,
     resetGame,
-    userAdvice,
     getActiveAdvice,
     markAdviceApplied,
   } = useSurvivalStore();
@@ -41,16 +40,14 @@ export function SurvivalGame() {
   const [turnNumber, setTurnNumber] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [survivalTip, setSurvivalTip] = useState<string | null>(null);
-  const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
+  const turnIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Process a single game turn
   const processTurn = useCallback(async () => {
     if (!isPlaying || isPaused || isProcessing) return;
 
     setIsProcessing(true);
 
     try {
-      // Get active advice to send to AI
       const activeAdvice = getActiveAdvice();
 
       const response = await fetch('/api/survival', {
@@ -66,189 +63,167 @@ export function SurvivalGame() {
         }),
       });
 
-      // Mark advice as applied after sending
       activeAdvice.forEach(a => markAdviceApplied(a.id));
 
       if (!response.ok) throw new Error('Game API error');
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      if (!reader) throw new Error('No reader');
 
       const decoder = new TextDecoder();
-      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
 
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            switch (data.type) {
-              case 'phase':
-                if (data.phase === 'god_thinking') {
-                  setCurrentAction('The Forest is scheming...');
-                } else if (data.phase === 'survivor_thinking') {
-                  setCurrentAction('Claude is thinking...');
-                }
-                break;
-
-              case 'god_thought':
-                setGodThoughts(data.content);
-                addGameEvent({
-                  source: 'god',
-                  type: 'thought',
-                  content: data.content,
-                  emoji: '🧠',
-                });
-                break;
-
-              case 'world_event':
-                addGameEvent({
-                  source: 'world',
-                  type: 'environmental',
-                  content: data.content,
-                  emoji: '🌲',
-                });
-                // Trigger chat reaction
-                addChatMessage({
-                  username: 'system',
-                  message: `🌲 ${data.content.slice(0, 50)}...`,
-                  color: '#a855f7',
-                });
-                break;
-
-              case 'world_state_change':
-                updateWorldState(data.changes);
-                break;
-
-              case 'player_stat_change':
-                updatePlayerStats(data.changes);
-                if (data.changes.health && data.changes.health < 0) {
-                  addGameEvent({
-                    source: 'system',
-                    type: 'danger',
-                    content: `Environmental damage: ${Math.abs(data.changes.health)} health lost`,
-                    emoji: '💔',
-                  });
-                }
-                break;
-
-              case 'threat_spawned':
-                addGameEvent({
-                  source: 'god',
-                  type: 'danger',
-                  content: `A ${data.threat} appears!`,
-                  emoji: '⚠️',
-                });
-                updateWorldState({
-                  threats: [...worldState.threats, data.threat],
-                });
-                break;
-
-              case 'survivor_thought':
-                setSurvivorThoughts(data.content);
-                addGameEvent({
-                  source: 'survivor',
-                  type: 'thought',
-                  content: data.content,
-                  emoji: '💭',
-                });
-                break;
-
-              case 'survivor_action':
-                setCurrentAction(data.action.replace('_', ' ').toUpperCase());
-                addGameEvent({
-                  source: 'survivor',
-                  type: 'action',
-                  content: data.description,
-                  emoji: '🎯',
-                });
-                break;
-
-              case 'survival_tip':
-                setSurvivalTip(data.tip);
-                setTimeout(() => setSurvivalTip(null), 8000);
-                break;
-
-              case 'action_result':
-                updatePlayerStats(data.statChanges);
-                addGameEvent({
-                  source: 'system',
-                  type: data.success ? 'success' : 'failure',
-                  content: data.message,
-                  emoji: data.success ? '✅' : '❌',
-                });
-
-                // Handle inventory changes
-                if (data.inventoryChanges?.add) {
-                  for (const item of data.inventoryChanges.add) {
-                    addInventoryItem({
-                      id: item,
-                      name: item.charAt(0).toUpperCase() + item.slice(1),
-                      quantity: 1,
-                      icon: getItemIcon(item),
-                      type: getItemType(item),
+              switch (data.type) {
+                case 'phase':
+                  if (data.phase === 'god_thinking') {
+                    addGameEvent({
+                      source: 'system',
+                      type: 'environmental',
+                      content: '🌲 The forest awakens...',
+                      emoji: '🌲'
                     });
                   }
-                }
-                break;
+                  break;
 
-              case 'turn_complete':
-                setTurnNumber(data.turnNumber);
-                setCurrentAction('');
+                case 'god_thought':
+                  setGodThoughts(data.content);
+                  break;
 
-                // Check for game over
-                const newStats = { ...playerStats, ...data.summary?.statsAfter };
-                if (newStats.health <= 0) {
-                  endGame();
+                case 'world_event':
+                  addGameEvent({
+                    source: 'god',
+                    type: 'environmental',
+                    content: data.content,
+                    emoji: '⚡'
+                  });
+                  break;
+
+                case 'world_state_change':
+                  if (data.changes) {
+                    updateWorldState(data.changes);
+                  }
+                  break;
+
+                case 'player_stat_change':
+                  if (data.changes) {
+                    updatePlayerStats(data.changes);
+                  }
+                  break;
+
+                case 'threat_spawned':
+                  updateWorldState({
+                    threats: [...worldState.threats, data.threat]
+                  });
+                  addGameEvent({
+                    source: 'god',
+                    type: 'danger',
+                    content: `⚠️ ${data.threat} appeared!`,
+                    emoji: '⚠️'
+                  });
+                  break;
+
+                case 'survivor_thought':
+                  setSurvivorThoughts(data.content);
+                  break;
+
+                case 'survivor_action':
+                  setCurrentAction(data.action);
+                  addGameEvent({
+                    source: 'survivor',
+                    type: 'action',
+                    content: `🎯 ${data.description}`,
+                    emoji: '🎯'
+                  });
+                  break;
+
+                case 'survival_tip':
+                  setSurvivalTip(data.tip);
+                  setTimeout(() => setSurvivalTip(null), 8000);
+                  break;
+
+                case 'action_result':
+                  if (data.statChanges) {
+                    updatePlayerStats(data.statChanges);
+                  }
+                  if (data.inventoryChanges?.add) {
+                    data.inventoryChanges.add.forEach((item: string) => {
+                      addInventoryItem({
+                        id: item,
+                        name: item.charAt(0).toUpperCase() + item.slice(1),
+                        quantity: 1,
+                        icon: getItemIcon(item),
+                        type: getItemType(item),
+                      });
+                    });
+                  }
                   addGameEvent({
                     source: 'system',
-                    type: 'danger',
-                    content: `GAME OVER - Claude survived ${worldState.daysSurvived} days.`,
-                    emoji: '💀',
+                    type: data.success ? 'success' : 'failure',
+                    content: data.message,
+                    emoji: data.success ? '✅' : '❌'
                   });
-                }
+                  break;
 
-                // Update day counter
-                if (data.turnNumber % 4 === 0) {
-                  updateWorldState({
-                    daysSurvived: worldState.daysSurvived + 1,
+                case 'turn_complete':
+                  setTurnNumber(data.turnNumber);
+                  setCurrentAction('');
+                  if (data.turnNumber % 4 === 0) {
+                    progressTime();
+                  }
+                  break;
+
+                case 'error':
+                  addGameEvent({
+                    source: 'system',
+                    type: 'failure',
+                    content: data.message,
+                    emoji: '❌'
                   });
-                }
-
-                // Cycle time of day
-                const times: Array<'dawn' | 'day' | 'dusk' | 'night'> = ['dawn', 'day', 'dusk', 'night'];
-                const currentIdx = times.indexOf(worldState.timeOfDay);
-                updateWorldState({
-                  timeOfDay: times[(currentIdx + 1) % 4],
-                });
-                break;
+                  break;
+              }
+            } catch (e) {
+              console.error('Parse error:', e);
             }
-          } catch {
-            // Ignore parse errors from partial data
           }
         }
       }
+
+      if (playerStats.health <= 0) {
+        endGame();
+        addGameEvent({
+          source: 'system',
+          type: 'failure',
+          content: `💀 Claude survived ${worldState.daysSurvived} days. Game Over!`,
+          emoji: '💀'
+        });
+        addChatMessage({
+          username: 'System',
+          message: `Game Over! Claude survived ${worldState.daysSurvived} days!`,
+          color: '#f44336'
+        });
+      }
+
     } catch (error) {
-      console.error('Turn processing error:', error);
+      console.error('Turn error:', error);
       addGameEvent({
         source: 'system',
         type: 'failure',
-        content: 'Connection lost... retrying...',
-        emoji: '⚠️',
+        content: 'Connection lost... Reconnecting...',
+        emoji: '🔄'
       });
     } finally {
       setIsProcessing(false);
-      setGodThoughts('');
-      setSurvivorThoughts('');
     }
   }, [
     isPlaying,
@@ -259,8 +234,8 @@ export function SurvivalGame() {
     inventory,
     gameEvents,
     turnNumber,
-    updatePlayerStats,
     updateWorldState,
+    updatePlayerStats,
     addGameEvent,
     setGodThoughts,
     setSurvivorThoughts,
@@ -272,97 +247,134 @@ export function SurvivalGame() {
     markAdviceApplied,
   ]);
 
-  // Game loop
+  const progressTime = useCallback(() => {
+    const times: Array<'dawn' | 'day' | 'dusk' | 'night'> = ['dawn', 'day', 'dusk', 'night'];
+    const currentIndex = times.indexOf(worldState.timeOfDay);
+    const nextIndex = (currentIndex + 1) % times.length;
+
+    updateWorldState({
+      timeOfDay: times[nextIndex],
+      daysSurvived: nextIndex === 0 ? worldState.daysSurvived + 1 : worldState.daysSurvived,
+    });
+  }, [worldState.timeOfDay, worldState.daysSurvived, updateWorldState]);
+
   useEffect(() => {
     if (isPlaying && !isPaused) {
-      const interval = 6000 / gameSpeed; // Base interval adjusted by speed
-      gameLoopRef.current = setInterval(processTurn, interval);
+      const interval = 8000 / gameSpeed;
+      turnIntervalRef.current = setInterval(processTurn, interval);
     }
 
     return () => {
-      if (gameLoopRef.current) {
-        clearInterval(gameLoopRef.current);
+      if (turnIntervalRef.current) {
+        clearInterval(turnIntervalRef.current);
       }
     };
   }, [isPlaying, isPaused, gameSpeed, processTurn]);
 
-  // Handle start game
   const handleStart = () => {
     resetGame();
     startGame();
-    setTurnNumber(0);
-
     addGameEvent({
       source: 'system',
       type: 'environmental',
-      content: 'Claude wakes up in a mysterious forest. Survival begins now.',
-      emoji: '🌅',
+      content: '🌅 A new adventure begins! Good luck, Claude!',
+      emoji: '🌅'
     });
-
     addChatMessage({
-      username: 'system',
-      message: '🎮 Game started! Can Claude survive The Forest?',
-      color: '#22c55e',
+      username: 'System',
+      message: '🎮 Game Started! Let the adventure begin!',
+      color: '#4caf50'
     });
-
-    // Start first turn after a short delay
     setTimeout(processTurn, 1000);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500">
+      {/* Decorative background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          className="absolute -top-40 -right-40 w-96 h-96 bg-yellow-300/40 rounded-full blur-3xl"
+          animate={{ scale: [1, 1.2, 1], rotate: [0, 180, 360] }}
+          transition={{ duration: 20, repeat: Infinity }}
+        />
+        <motion.div
+          className="absolute top-1/2 -left-40 w-80 h-80 bg-pink-400/40 rounded-full blur-3xl"
+          animate={{ scale: [1.2, 1, 1.2], y: [0, 50, 0] }}
+          transition={{ duration: 15, repeat: Infinity }}
+        />
+        <motion.div
+          className="absolute -bottom-40 right-1/3 w-96 h-96 bg-purple-400/40 rounded-full blur-3xl"
+          animate={{ scale: [1, 1.3, 1] }}
+          transition={{ duration: 18, repeat: Infinity }}
+        />
+      </div>
+
       {/* Header */}
-      <header className="border-b border-gray-800/50 bg-gray-900/80 backdrop-blur-xl sticky top-0 z-50">
+      <header className="relative bg-white/95 backdrop-blur-xl border-b-4 border-emerald-500 sticky top-0 z-50 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <motion.div
-                className="flex items-center gap-3"
+                className="flex items-center gap-4"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
               >
                 <div className="relative">
-                  <motion.span
-                    className="text-3xl"
-                    animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
-                    transition={{ duration: 4, repeat: Infinity }}
+                  <motion.div
+                    className="text-5xl"
+                    animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
                   >
                     🌲
-                  </motion.span>
+                  </motion.div>
                   <motion.div
-                    className="absolute -inset-2 bg-green-500/20 rounded-full blur-md"
-                    animate={{ opacity: [0.3, 0.6, 0.3] }}
+                    className="absolute -inset-4 bg-emerald-400/50 rounded-full blur-xl -z-10"
+                    animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity }}
                   />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                  <h1 className="text-3xl font-black bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">
                     CLAUDE SURVIVAL
                   </h1>
-                  <p className="text-xs text-gray-500 font-medium -mt-0.5">The Forest vs Claude</p>
+                  <p className="text-sm font-bold text-emerald-600">The Ultimate AI Adventure 🎮</p>
                 </div>
               </motion.div>
-              <div className="hidden md:flex items-center gap-2 ml-4">
-                <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/30 rounded-full text-xs font-bold text-purple-300">
-                  GOD AI
-                </span>
-                <span className="text-gray-600">vs</span>
-                <span className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full text-xs font-bold text-blue-300">
-                  SURVIVOR AI
-                </span>
+
+              <div className="hidden lg:flex items-center gap-3 ml-8">
+                <motion.div
+                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-2xl font-bold shadow-lg shadow-purple-500/40"
+                  whileHover={{ scale: 1.05, y: -2 }}
+                >
+                  🌲 THE FOREST
+                </motion.div>
+                <motion.span
+                  className="text-3xl"
+                  animate={{ scale: [1, 1.2, 1], rotate: [0, 5, -5, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  ⚔️
+                </motion.span>
+                <motion.div
+                  className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-2xl font-bold shadow-lg shadow-cyan-500/40"
+                  whileHover={{ scale: 1.05, y: -2 }}
+                >
+                  🤖 CLAUDE
+                </motion.div>
+
                 {isPlaying && (
-                  <motion.span
+                  <motion.div
                     initial={{ opacity: 0, scale: 0 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="flex items-center gap-1.5 ml-2 px-2 py-1 bg-red-500/20 border border-red-500/30 rounded-full"
+                    className="flex items-center gap-2 ml-4 px-5 py-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-2xl shadow-lg shadow-red-500/40"
                   >
                     <motion.span
-                      className="w-2 h-2 bg-red-500 rounded-full"
-                      animate={{ opacity: [1, 0.3, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
+                      className="w-3 h-3 bg-white rounded-full"
+                      animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
+                      transition={{ duration: 0.8, repeat: Infinity }}
                     />
-                    <span className="text-xs font-bold text-red-400">LIVE</span>
-                  </motion.span>
+                    <span className="text-white font-black">LIVE</span>
+                  </motion.div>
                 )}
               </div>
             </div>
@@ -372,21 +384,25 @@ export function SurvivalGame() {
               {!isPlaying ? (
                 <motion.button
                   onClick={handleStart}
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  className="group relative px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-green-500/30 hover:shadow-green-500/50 transition-all overflow-hidden"
+                  whileHover={{ scale: 1.05, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="group relative px-10 py-4 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white font-black text-lg rounded-2xl shadow-2xl shadow-emerald-500/50 hover:shadow-emerald-400/70 transition-all overflow-hidden"
                 >
                   <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-400 opacity-0 group-hover:opacity-20 transition-opacity"
+                    className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 opacity-0 group-hover:opacity-100"
+                    initial={{ x: '-100%' }}
+                    whileHover={{ x: '100%' }}
+                    transition={{ duration: 0.6 }}
                   />
-                  <span className="relative flex items-center gap-2">
+                  <span className="relative flex items-center gap-3">
                     <motion.span
-                      animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
+                      className="text-2xl"
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
                     >
                       ▶️
                     </motion.span>
-                    START GAME
+                    START ADVENTURE
                   </span>
                 </motion.button>
               ) : (
@@ -395,26 +411,26 @@ export function SurvivalGame() {
                     onClick={isPaused ? resumeGame : pauseGame}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className={`px-4 py-2.5 rounded-xl font-medium transition-all ${
+                    className={`px-6 py-3 rounded-xl font-bold text-lg transition-all shadow-lg ${
                       isPaused
-                        ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
-                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'
+                        ? 'bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-emerald-500/40'
+                        : 'bg-white text-gray-700 border-3 border-emerald-400 hover:bg-emerald-50'
                     }`}
                   >
-                    {isPaused ? '▶️ Resume' : '⏸️ Pause'}
+                    {isPaused ? '▶️ Play' : '⏸️ Pause'}
                   </motion.button>
 
-                  <div className="flex items-center gap-1 bg-gray-800/80 rounded-xl p-1 border border-gray-700/50">
+                  <div className="flex items-center gap-1 bg-white rounded-2xl p-2 shadow-lg border-2 border-gray-100">
                     {[1, 2, 3].map((speed) => (
                       <motion.button
                         key={speed}
                         onClick={() => setGameSpeed(speed as 1 | 2 | 3)}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        className={`px-5 py-2 rounded-xl text-sm font-black transition-all ${
                           gameSpeed === speed
-                            ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md'
-                            : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                            ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md'
+                            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
                         }`}
                       >
                         {speed}x
@@ -423,13 +439,10 @@ export function SurvivalGame() {
                   </div>
 
                   <motion.button
-                    onClick={() => {
-                      endGame();
-                      resetGame();
-                    }}
+                    onClick={() => { endGame(); resetGame(); }}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-4 py-2.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 hover:border-red-500 rounded-xl font-medium transition-all"
+                    className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-red-500/40 hover:shadow-red-500/60 transition-all"
                   >
                     ⏹️ End
                   </motion.button>
@@ -441,78 +454,79 @@ export function SurvivalGame() {
       </header>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="relative max-w-7xl mx-auto px-4 py-8">
+        {/* Survival tip */}
+        <AnimatePresence>
+          {survivalTip && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              className="mb-6 p-5 bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 rounded-3xl shadow-2xl shadow-amber-500/40 border-4 border-white/50"
+            >
+              <p className="text-amber-900 font-black text-lg text-center flex items-center justify-center gap-3">
+                <motion.span
+                  className="text-3xl"
+                  animate={{ rotate: [0, 20, -20, 0], scale: [1, 1.2, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                >
+                  💡
+                </motion.span>
+                <span>{survivalTip}</span>
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main game area */}
           <div className="lg:col-span-3 space-y-6">
-            {/* Game World Visualization */}
             <PixiGameWorld />
-
-            {/* AI Brains */}
             <AIBrains />
-
-            {/* Survival Tip */}
-            <AnimatePresence>
-              {survivalTip && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 border border-blue-500/30 rounded-xl p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl">💡</span>
-                    <div>
-                      <h4 className="text-blue-400 font-bold text-sm mb-1">SURVIVAL TIP</h4>
-                      <p className="text-gray-200">{survivalTip}</p>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Game Log */}
             <GameLog />
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Player Stats */}
             <PlayerStats />
-
-            {/* Teaching Panel */}
             <TeachingPanel />
-
-            {/* Pump.fun Style Chat */}
             <PumpChat />
           </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800/50 py-6 mt-12 bg-gray-900/50">
+      <footer className="relative bg-white/95 backdrop-blur-xl border-t-4 border-emerald-500 py-8 mt-12">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🌲</span>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <motion.span
+                className="text-5xl"
+                animate={{ rotate: [0, 5, -5, 0] }}
+                transition={{ duration: 3, repeat: Infinity }}
+              >
+                🌲
+              </motion.span>
               <div>
-                <p className="font-bold text-white">Claude Survival Game</p>
-                <p className="text-xs text-gray-500">A dual AI experiment in survival</p>
+                <p className="font-black text-2xl bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                  Claude Survival
+                </p>
+                <p className="font-semibold text-gray-500">Watch AI learn to survive!</p>
               </div>
             </div>
-            <div className="flex items-center gap-6 text-sm text-gray-500">
+            <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                <span>THE FOREST (God AI)</span>
+                <div className="w-4 h-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/50" />
+                <span className="font-bold text-gray-600">THE FOREST</span>
               </div>
-              <span className="text-gray-700">vs</span>
+              <span className="text-2xl">⚔️</span>
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                <span>CLAUDE (Survivor AI)</span>
+                <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/50" />
+                <span className="font-bold text-gray-600">CLAUDE</span>
               </div>
             </div>
-            <div className="text-xs text-gray-600">
-              Powered by OpenRouter AI
+            <div className="px-5 py-2 bg-gradient-to-r from-gray-100 to-gray-200 rounded-full">
+              <span className="font-bold text-gray-600">⚡ Powered by OpenRouter AI</span>
             </div>
           </div>
         </div>
@@ -521,33 +535,20 @@ export function SurvivalGame() {
   );
 }
 
-// Helper functions
 function getItemIcon(item: string): string {
   const icons: Record<string, string> = {
-    wood: '🪵',
-    berries: '🫐',
-    water: '💧',
-    meat: '🥩',
-    fish: '🐟',
-    stone: '🪨',
-    tool: '🔨',
-    spear: '🗡️',
-    stick: '🪵',
+    wood: '🪵', stone: '🪨', berries: '🫐', water: '💧',
+    meat: '🥩', fish: '🐟', tool: '🔧', spear: '🔱',
+    stick: '🪵', rope: '🪢', shelter: '🏠', fire: '🔥',
   };
   return icons[item] || '📦';
 }
 
 function getItemType(item: string): 'resource' | 'tool' | 'food' | 'weapon' {
   const types: Record<string, 'resource' | 'tool' | 'food' | 'weapon'> = {
-    wood: 'resource',
-    stone: 'resource',
-    stick: 'resource',
-    berries: 'food',
-    meat: 'food',
-    fish: 'food',
-    water: 'food',
-    tool: 'tool',
-    spear: 'weapon',
+    wood: 'resource', stone: 'resource', stick: 'resource', rope: 'resource',
+    berries: 'food', meat: 'food', fish: 'food', water: 'food',
+    tool: 'tool', spear: 'weapon',
   };
   return types[item] || 'resource';
 }

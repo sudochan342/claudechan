@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSurvivalStore } from '@/store/survival';
 
-// Simulated viewer usernames and their colors
 const FAKE_USERS = [
   { name: 'degen_andy', color: '#f97316' },
   { name: 'pump_it_up', color: '#22c55e' },
@@ -46,14 +45,12 @@ export function PumpChat() {
   const [userMessage, setUserMessage] = useState('');
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll chat
   useEffect(() => {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
   }, [chatMessages]);
 
-  // Simulate viewer count fluctuation
   useEffect(() => {
     const interval = setInterval(() => {
       setViewerCount(viewerCount + Math.floor(Math.random() * 20) - 10);
@@ -61,12 +58,10 @@ export function PumpChat() {
     return () => clearInterval(interval);
   }, [viewerCount, setViewerCount]);
 
-  // Simulate fake chat messages
   useEffect(() => {
     if (!isPlaying) return;
 
     const interval = setInterval(() => {
-      // Determine message type based on recent events
       const lastEvent = gameEvents[gameEvents.length - 1];
       let trigger = 'general';
 
@@ -95,112 +90,119 @@ export function PumpChat() {
     addChatMessage({
       username: 'you',
       message: userMessage,
-      color: '#ffffff',
+      color: '#3b82f6',
     });
     setUserMessage('');
   };
 
   return (
-    <div className="bg-gray-900/90 backdrop-blur-sm rounded-2xl border border-gray-700/50 flex flex-col h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white/95 backdrop-blur-xl rounded-3xl border-4 border-white/50 shadow-2xl shadow-pink-500/10 flex flex-col"
+    >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-700/50 bg-gradient-to-r from-green-900/30 to-purple-900/30">
+      <div className="px-5 py-4 border-b-2 border-gray-100 bg-gradient-to-r from-pink-50 to-purple-50 rounded-t-3xl">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <motion.div
-              className="w-2 h-2 rounded-full bg-red-500"
-              animate={{ opacity: [1, 0.5, 1] }}
+              className="w-3 h-3 rounded-full bg-gradient-to-r from-red-500 to-pink-500"
+              animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
               transition={{ duration: 1, repeat: Infinity }}
             />
-            <span className="text-white font-bold text-sm">LIVE CHAT</span>
+            <span className="font-black text-lg bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">LIVE CHAT</span>
           </div>
-          <div className="flex items-center gap-2">
-            <motion.span
-              className="text-xs text-green-400 font-mono"
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              👁 {Math.max(100, viewerCount).toLocaleString()}
-            </motion.span>
-          </div>
+          <motion.div
+            className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full"
+            animate={{ scale: [1, 1.02, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <span className="text-lg">👁</span>
+            <span className="font-bold text-emerald-700">{Math.max(100, viewerCount).toLocaleString()}</span>
+          </motion.div>
         </div>
       </div>
 
-      {/* Chat messages */}
+      {/* Messages */}
       <div
         ref={chatRef}
-        className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
-        style={{ maxHeight: '300px' }}
+        className="flex-1 overflow-y-auto p-4 space-y-2"
+        style={{ maxHeight: '280px' }}
       >
         <AnimatePresence initial={false}>
           {chatMessages.map((msg) => (
             <motion.div
               key={msg.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, x: -20, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex items-start gap-1.5 text-sm"
+              className="flex items-start gap-2 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl px-3 py-2"
             >
-              <span
-                className="font-medium flex-shrink-0"
-                style={{ color: msg.color }}
-              >
+              <span className="font-bold text-sm" style={{ color: msg.color }}>
                 {msg.username}:
               </span>
-              <span className="text-gray-300 break-words">{msg.message}</span>
+              <span className="text-gray-700 text-sm">{msg.message}</span>
             </motion.div>
           ))}
         </AnimatePresence>
 
         {chatMessages.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-gray-500 text-sm">Chat will appear here when the game starts...</p>
+          <div className="text-center py-12">
+            <motion.span
+              className="text-5xl"
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              💬
+            </motion.span>
+            <p className="text-gray-400 font-medium mt-2">Chat will appear when the game starts!</p>
           </div>
         )}
       </div>
 
-      {/* Chat input */}
-      <div className="p-2 border-t border-gray-700/50">
+      {/* Input */}
+      <div className="p-4 border-t-2 border-gray-100">
         <div className="flex gap-2">
           <input
             type="text"
             value={userMessage}
             onChange={(e) => setUserMessage(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Send a message..."
-            className="flex-1 bg-gray-800/80 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+            placeholder="Say something..."
+            className="flex-1 bg-gray-100 border-2 border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-200 font-medium transition-all"
           />
           <motion.button
             onClick={handleSend}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-sm font-medium rounded-lg hover:from-green-500 hover:to-emerald-500 transition-all"
+            className="px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white font-bold rounded-xl shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 transition-all"
           >
             Send
           </motion.button>
         </div>
-      </div>
 
-      {/* Quick reactions */}
-      <div className="px-2 pb-2 flex flex-wrap gap-1">
-        {['🔥', '💀', '🚀', 'W', 'L', '👀'].map((emoji) => (
-          <motion.button
-            key={emoji}
-            onClick={() => {
-              addChatMessage({
-                username: 'you',
-                message: emoji,
-                color: '#ffffff',
-              });
-            }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="px-2 py-1 bg-gray-800/60 hover:bg-gray-700/60 rounded text-sm transition-colors"
-          >
-            {emoji}
-          </motion.button>
-        ))}
+        {/* Quick reactions */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {['🔥', '💀', '🚀', 'W', 'L', '👀', '😂', '❤️'].map((emoji) => (
+            <motion.button
+              key={emoji}
+              onClick={() => {
+                addChatMessage({
+                  username: 'you',
+                  message: emoji,
+                  color: '#3b82f6',
+                });
+              }}
+              whileHover={{ scale: 1.15, y: -2 }}
+              whileTap={{ scale: 0.9 }}
+              className="px-3 py-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-pink-100 hover:to-purple-100 rounded-xl text-lg transition-all shadow-sm"
+            >
+              {emoji}
+            </motion.button>
+          ))}
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

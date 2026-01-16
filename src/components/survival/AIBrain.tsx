@@ -17,24 +17,26 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
     god: {
       name: 'THE FOREST',
       icon: '🌲',
-      subtitle: 'World Controller',
-      color: 'red',
-      bgGradient: 'from-red-900/40 to-red-950/60',
-      borderColor: 'border-red-500/30',
-      glowColor: 'rgba(239, 68, 68, 0.3)',
-      textColor: 'text-red-400',
-      activeLabel: 'Plotting...',
+      subtitle: 'World Controller AI',
+      gradient: 'from-purple-500 via-pink-500 to-rose-500',
+      bgGradient: 'from-purple-50 via-pink-50 to-rose-50',
+      borderColor: 'border-purple-400',
+      textColor: 'text-purple-700',
+      glowColor: 'shadow-purple-500/30',
+      activeLabel: '🎭 Plotting...',
+      idleText: 'The forest watches silently...',
     },
     survivor: {
       name: 'CLAUDE',
-      icon: '🧑',
+      icon: '🤖',
       subtitle: 'Survivor AI',
-      color: 'green',
-      bgGradient: 'from-green-900/40 to-green-950/60',
-      borderColor: 'border-green-500/30',
-      glowColor: 'rgba(34, 197, 94, 0.3)',
-      textColor: 'text-green-400',
-      activeLabel: 'Thinking...',
+      gradient: 'from-cyan-500 via-blue-500 to-indigo-500',
+      bgGradient: 'from-cyan-50 via-blue-50 to-indigo-50',
+      borderColor: 'border-cyan-400',
+      textColor: 'text-cyan-700',
+      glowColor: 'shadow-cyan-500/30',
+      activeLabel: '🧠 Thinking...',
+      idleText: 'Awaiting the next challenge...',
     },
   };
 
@@ -42,55 +44,49 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
 
   return (
     <motion.div
-      className={`relative bg-gradient-to-br ${c.bgGradient} rounded-2xl border ${c.borderColor} overflow-hidden`}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
+      className={`relative bg-gradient-to-br ${c.bgGradient} rounded-3xl border-4 border-white/50 overflow-hidden shadow-2xl ${c.glowColor}`}
     >
-      {/* Animated glow effect */}
+      {/* Animated background glow */}
       <motion.div
-        className="absolute inset-0 opacity-50"
-        style={{
-          background: `radial-gradient(circle at 50% 50%, ${c.glowColor}, transparent 70%)`,
-        }}
+        className={`absolute inset-0 bg-gradient-to-r ${c.gradient} opacity-10`}
         animate={{
-          scale: [1, 1.2, 1],
-          opacity: thoughts ? [0.5, 0.7, 0.5] : 0.3,
+          scale: thoughts ? [1, 1.1, 1] : 1,
+          opacity: thoughts ? [0.1, 0.2, 0.1] : 0.05,
         }}
-        transition={{
-          duration: 3,
-          repeat: Infinity,
-        }}
+        transition={{ duration: 2, repeat: Infinity }}
       />
 
-      {/* Content */}
-      <div className="relative z-10 p-4">
+      <div className="relative z-10 p-5">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4">
             <motion.div
               className="relative"
-              animate={{
-                rotate: isGod && thoughts ? [0, 5, -5, 0] : 0,
-              }}
-              transition={{
-                duration: 2,
-                repeat: thoughts ? Infinity : 0,
-              }}
+              animate={isGod && thoughts ? { rotate: [0, 10, -10, 0] } : {}}
+              transition={{ duration: 1.5, repeat: Infinity }}
             >
-              <span className="text-3xl">{c.icon}</span>
+              <motion.span
+                className="text-5xl"
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                {c.icon}
+              </motion.span>
               <motion.div
-                className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full ${thoughts ? 'bg-yellow-400' : 'bg-gray-600'}`}
-                animate={thoughts ? {
-                  scale: [1, 1.3, 1],
-                  opacity: [1, 0.7, 1],
-                } : {}}
+                className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                  thoughts ? 'bg-gradient-to-r from-yellow-400 to-orange-400' : 'bg-gray-300'
+                }`}
+                animate={thoughts ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 0.8, repeat: Infinity }}
               />
             </motion.div>
             <div>
-              <h3 className={`font-bold ${c.textColor}`}>{c.name}</h3>
-              <p className="text-xs text-gray-500">{c.subtitle}</p>
+              <h3 className={`text-xl font-black bg-gradient-to-r ${c.gradient} bg-clip-text text-transparent`}>
+                {c.name}
+              </h3>
+              <p className="text-sm font-semibold text-gray-500">{c.subtitle}</p>
             </div>
           </div>
 
@@ -100,21 +96,16 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-full bg-${c.color}-500/20 border border-${c.color}-500/30`}
+                className={`px-4 py-2 rounded-full bg-gradient-to-r ${c.gradient} shadow-lg`}
               >
-                <motion.span
-                  className={`w-2 h-2 rounded-full bg-${c.color}-400`}
-                  animate={{ opacity: [1, 0.4, 1] }}
-                  transition={{ duration: 0.8, repeat: Infinity }}
-                />
-                <span className={`text-xs ${c.textColor}`}>{c.activeLabel}</span>
+                <span className="text-white font-bold text-sm">{c.activeLabel}</span>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
         {/* Thought bubble */}
-        <div className="min-h-[80px] bg-black/30 rounded-xl p-3 border border-gray-700/30">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border-2 border-gray-100 min-h-[100px] shadow-inner">
           <AnimatePresence mode="wait">
             {thoughts ? (
               <motion.div
@@ -122,10 +113,16 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="flex items-start gap-2"
+                className="flex items-start gap-3"
               >
-                <span className="text-gray-400 text-lg">💭</span>
-                <p className="text-sm text-gray-200 italic leading-relaxed">{thoughts}</p>
+                <motion.span
+                  className="text-3xl"
+                  animate={{ y: [0, -5, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  💭
+                </motion.span>
+                <p className={`text-base font-medium ${c.textColor} italic leading-relaxed`}>{thoughts}</p>
               </motion.div>
             ) : (
               <motion.div
@@ -133,39 +130,44 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex items-center justify-center h-full"
+                className="flex flex-col items-center justify-center h-full py-4"
               >
-                <p className="text-gray-500 text-sm italic">
-                  {isPlaying
-                    ? isGod
-                      ? 'The forest watches silently...'
-                      : 'Awaiting the next challenge...'
-                    : 'Waiting for game to begin...'}
+                <motion.span
+                  className="text-4xl mb-2"
+                  animate={{ opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  {isGod ? '🌲' : '🤖'}
+                </motion.span>
+                <p className="text-gray-400 italic font-medium">
+                  {isPlaying ? c.idleText : 'Waiting for game to begin...'}
                 </p>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* Neural activity visualization */}
-        <div className="mt-3 flex items-center gap-1">
-          <span className="text-xs text-gray-500 mr-2">Neural Activity:</span>
-          {[...Array(8)].map((_, i) => (
-            <motion.div
-              key={i}
-              className={`w-2 rounded-full ${thoughts ? `bg-${c.color}-500` : 'bg-gray-700'}`}
-              animate={{
-                height: thoughts ? [8, 16 + Math.random() * 8, 8] : 8,
-                opacity: thoughts ? [0.5, 1, 0.5] : 0.3,
-              }}
-              transition={{
-                duration: 0.5,
-                repeat: Infinity,
-                delay: i * 0.1,
-              }}
-              style={{ height: 8 }}
-            />
-          ))}
+        {/* Neural activity */}
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-sm font-bold text-gray-500">Neural Activity:</span>
+          <div className="flex items-end gap-1">
+            {[...Array(10)].map((_, i) => (
+              <motion.div
+                key={i}
+                className={`w-2 rounded-full bg-gradient-to-t ${c.gradient}`}
+                animate={{
+                  height: thoughts ? [8, 20 + Math.random() * 12, 8] : 8,
+                  opacity: thoughts ? [0.5, 1, 0.5] : 0.3,
+                }}
+                transition={{
+                  duration: 0.4,
+                  repeat: Infinity,
+                  delay: i * 0.08,
+                }}
+                style={{ height: 8 }}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -174,7 +176,7 @@ export function AIBrainPanel({ type }: AIBrainPanelProps) {
 
 export function AIBrains() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <AIBrainPanel type="god" />
       <AIBrainPanel type="survivor" />
     </div>

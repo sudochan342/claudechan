@@ -79,12 +79,12 @@ export function GameLog() {
             <div className="flex flex-col items-center justify-center h-full py-12">
               <motion.span
                 className="text-6xl mb-4"
-                animate={{ y: [0, -10, 0] }}
+                animate={{ y: [0, -10, 0], rotate: [0, 5, -5, 0] }}
                 transition={{ duration: 2, repeat: Infinity }}
               >
-                🎮
+                🌲
               </motion.span>
-              <p className="text-gray-400 font-semibold">Press START to begin your adventure!</p>
+              <p className="text-gray-400 font-semibold">Loading survival adventure...</p>
             </div>
           ) : (
             gameEvents.map((event) => {

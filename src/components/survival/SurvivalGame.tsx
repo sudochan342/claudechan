@@ -233,13 +233,14 @@ export function SurvivalGame() {
     });
   }, [worldState.timeOfDay, worldState.daysSurvived, updateWorldState]);
 
-  // Game loop
+  // Game loop - faster for more action!
   useEffect(() => {
     if (isPlaying && !isPaused) {
-      const interval = 8000 / gameSpeed;
+      // Much faster turns: 5 seconds at 1x, 2.5s at 2x, 1.7s at 3x
+      const interval = 5000 / gameSpeed;
       turnIntervalRef.current = setInterval(processTurn, interval);
-      // First turn
-      setTimeout(processTurn, 1000);
+      // First turn starts quickly
+      setTimeout(processTurn, 800);
     }
     return () => {
       if (turnIntervalRef.current) clearInterval(turnIntervalRef.current);

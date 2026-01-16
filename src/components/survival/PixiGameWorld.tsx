@@ -925,18 +925,34 @@ export function PixiGameWorld() {
 
     const isGameActive = isPlaying && !isPaused;
     const player = playerRef.current;
+    const actionType = player.actionType; // Get action type early
 
-    // Movement logic
+    // Movement logic - more active movement!
     if (isGameActive) {
-      if (frame % 120 === 0) {
-        player.targetX = 0.3 + Math.random() * 0.4;
+      // Move more frequently based on action type
+      const shouldMove = frame % 60 === 0 || (actionType !== 'idle' && frame % 40 === 0);
+      if (shouldMove) {
+        // Move to different areas based on action
+        if (actionType === 'chopping') {
+          player.targetX = 0.15 + Math.random() * 0.15; // Near trees (left)
+        } else if (actionType === 'gathering' || actionType === 'eating') {
+          player.targetX = 0.7 + Math.random() * 0.15; // Near bushes (right)
+        } else if (actionType === 'drinking' || actionType === 'fishing') {
+          player.targetX = 0.1 + Math.random() * 0.1; // Near water (far left)
+        } else if (actionType === 'resting') {
+          player.targetX = 0.45 + Math.random() * 0.1; // Center (safe area)
+        } else if (actionType === 'fighting') {
+          player.targetX = 0.3 + Math.random() * 0.4; // Moving around fighting
+        } else {
+          player.targetX = 0.25 + Math.random() * 0.5; // General exploration
+        }
       }
       const dx = player.targetX - player.x;
       if (Math.abs(dx) > 0.01) {
-        player.x += dx * 0.02;
+        player.x += dx * 0.035; // Move faster
         player.direction = dx > 0 ? 1 : -1;
       }
-      player.actionProgress = Math.min(1, player.actionProgress + 0.02);
+      player.actionProgress = Math.min(1, player.actionProgress + 0.03);
     }
 
     const px = width * player.x;
@@ -944,7 +960,6 @@ export function PixiGameWorld() {
 
     let breath = Math.sin(frame * 0.05) * 2;
     const isWalking = isGameActive && Math.abs(player.targetX - player.x) > 0.01;
-    const actionType = player.actionType;
 
     // Animation variables
     let walk = 0, bobY = 0, armSwing = 0, bodyTilt = 0;

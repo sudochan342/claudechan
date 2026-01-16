@@ -117,6 +117,15 @@ export function PixiGameWorld() {
     initialized: false,
   });
 
+  // Cache for expensive renders that don't change often
+  const cacheRef = useRef({
+    lastTimeOfDay: '',
+    lastWeather: '',
+    skyRendered: false,
+    groundRendered: false,
+    mountainsRendered: false,
+  });
+
   const [isLoaded, setIsLoaded] = useState(false);
   const { worldState, playerStats, currentAction, isPlaying, isPaused, inventory } = useSurvivalStore();
 
@@ -143,8 +152,14 @@ export function PixiGameWorld() {
     return 'idle';
   }, []);
 
-  // Spawn particles
+  // Spawn particles - with max limit for performance
+  const MAX_PARTICLES = 50;
   const spawnParticles = useCallback((x: number, y: number, type: Particle['type'], count: number = 5) => {
+    // Limit particles for performance
+    if (particlesRef.current.length >= MAX_PARTICLES) {
+      particlesRef.current = particlesRef.current.slice(-MAX_PARTICLES / 2);
+    }
+
     const colors: Record<string, number[]> = {
       wood: [0x8B4513, 0xA0522D, 0xD2691E],
       leaf: [0x228B22, 0x32CD32, 0x90EE90],
@@ -160,13 +175,15 @@ export function PixiGameWorld() {
       coin: [0xFFD700, 0xFFC107, 0xFFEB3B],
     };
 
-    for (let i = 0; i < count; i++) {
+    // Reduce particle count for performance
+    const actualCount = Math.min(count, 8);
+    for (let i = 0; i < actualCount; i++) {
       particlesRef.current.push({
         x, y,
         vx: (Math.random() - 0.5) * 8,
         vy: -Math.random() * 6 - 2,
-        life: 60 + Math.random() * 30,
-        maxLife: 60,
+        life: 45 + Math.random() * 20,
+        maxLife: 45,
         color: colors[type][Math.floor(Math.random() * colors[type].length)],
         size: 3 + Math.random() * 4,
         type,
@@ -174,10 +191,14 @@ export function PixiGameWorld() {
     }
   }, []);
 
-  // Spawn floating text
+  // Spawn floating text - with limit for performance
   const spawnFloatingText = useCallback((x: number, y: number, text: string, color: number) => {
+    // Limit floating texts
+    if (floatingTextsRef.current.length >= 8) {
+      floatingTextsRef.current = floatingTextsRef.current.slice(-4);
+    }
     floatingTextsRef.current.push({
-      x, y, text, color, life: 90, maxLife: 90,
+      x, y, text, color, life: 60, maxLife: 60,
     });
   }, []);
 
@@ -268,13 +289,13 @@ export function PixiGameWorld() {
       });
     }
 
-    // Stars
+    // Stars - reduced from 150 to 50 for performance
     data.stars = [];
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 50; i++) {
       data.stars.push({
         x: seededRandom(i * 41 + 300) * width,
         y: seededRandom(i * 43 + 300) * groundY * 0.6,
-        size: 0.5 + seededRandom(i * 47 + 300) * 2.5,
+        size: 1 + seededRandom(i * 47 + 300) * 2,
         twinkleSpeed: 0.02 + seededRandom(i * 53 + 300) * 0.04,
         color: seededRandom(i * 59 + 300) > 0.8 ? 0xffd700 : 0xffffff,
       });
@@ -301,9 +322,9 @@ export function PixiGameWorld() {
       });
     }
 
-    // Flowers
+    // Flowers - reduced from 60 to 25 for performance
     data.flowers = [];
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 25; i++) {
       const x = seededRandom(i * 89 + 500) * width;
       if (x > width * 0.35 && x < width * 0.65) continue;
       data.flowers.push({
@@ -314,9 +335,9 @@ export function PixiGameWorld() {
       });
     }
 
-    // Butterflies
+    // Butterflies - reduced from 12 to 6 for performance
     data.butterflies = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 6; i++) {
       data.butterflies.push({
         x: seededRandom(i * 109 + 600) * width,
         y: groundY - 50 - seededRandom(i * 113 + 600) * 150,
@@ -481,27 +502,37 @@ export function PixiGameWorld() {
     }
   }, [currentAction, getActionType, spawnParticles, spawnFloatingText, updateCombo, triggerScreenShake, spawnAchievement]);
 
-  // Render sky gradient
+  // Render sky gradient - OPTIMIZED: only redraw when time of day changes
   const renderSky = useCallback(() => {
     const app = appRef.current;
     if (!app) return;
 
     const layer = app.stage.getChildByLabel('sky') as Container;
+    const time = worldState.timeOfDay;
+
+    // Skip if already rendered for this time of day
+    if (cacheRef.current.lastTimeOfDay === time && cacheRef.current.skyRendered && layer.children.length > 0) {
+      return;
+    }
+
     layer.removeChildren();
 
-    const time = worldState.timeOfDay;
     const { top, mid, bottom } = COLORS.sky[time];
     const height = app.screen.height * 0.72;
     const width = app.screen.width;
 
+    // Reduced gradient steps from 100 to 20 for performance
     const sky = new Graphics();
-    for (let i = 0; i < 100; i++) {
-      const t = i / 100;
+    for (let i = 0; i < 20; i++) {
+      const t = i / 20;
       const color = t < 0.5 ? lerpColor(top, mid, t * 2) : lerpColor(mid, bottom, (t - 0.5) * 2);
-      sky.rect(0, t * height, width, height / 100 + 1);
+      sky.rect(0, t * height, width, height / 20 + 1);
       sky.fill(color);
     }
     layer.addChild(sky);
+
+    cacheRef.current.lastTimeOfDay = time;
+    cacheRef.current.skyRendered = true;
   }, [worldState.timeOfDay]);
 
   // Render sky effects (sun/moon/stars)
@@ -717,12 +748,18 @@ export function PixiGameWorld() {
     }
   }, []);
 
-  // Render ground
+  // Render ground - OPTIMIZED: only render once
   const renderGround = useCallback(() => {
     const app = appRef.current;
     if (!app) return;
 
     const layer = app.stage.getChildByLabel('ground') as Container;
+
+    // Skip if already rendered
+    if (cacheRef.current.groundRendered && layer.children.length > 0) {
+      return;
+    }
+
     layer.removeChildren();
 
     const groundY = app.screen.height * 0.72;
@@ -734,7 +771,8 @@ export function PixiGameWorld() {
     ground.fill(COLORS.ground.grass);
     layer.addChild(ground);
 
-    for (let i = 0; i < 50; i++) {
+    // Reduced patches from 50 to 20
+    for (let i = 0; i < 20; i++) {
       const patch = new Graphics();
       const px = seededRandom(i * 157 + 900) * width;
       const py = groundY + seededRandom(i * 163 + 900) * (height - groundY - 20);
@@ -750,6 +788,8 @@ export function PixiGameWorld() {
     path.roundRect(pathX, groundY - 3, pathWidth, 25, 12);
     path.fill(COLORS.ground.path);
     layer.addChild(path);
+
+    cacheRef.current.groundRendered = true;
   }, []);
 
   // Render bushes
@@ -1310,7 +1350,8 @@ export function PixiGameWorld() {
     const frame = frameRef.current;
 
     if (worldState.weather === 'rain' || worldState.weather === 'storm') {
-      const intensity = worldState.weather === 'storm' ? 120 : 60;
+      // Reduced rain intensity for performance (was 120/60)
+      const intensity = worldState.weather === 'storm' ? 40 : 25;
 
       for (let i = 0; i < intensity; i++) {
         const x = ((seededRandom(i * 1000) * width * 1.2) + frame * 3) % (width * 1.2) - width * 0.1;
@@ -1584,6 +1625,14 @@ export function PixiGameWorld() {
       if (appRef.current && containerRef.current) {
         appRef.current.renderer.resize(containerRef.current.clientWidth, 500);
         staticDataRef.current.initialized = false;
+        // Reset cache so everything redraws
+        cacheRef.current = {
+          lastTimeOfDay: '',
+          lastWeather: '',
+          skyRendered: false,
+          groundRendered: false,
+          mountainsRendered: false,
+        };
         initStaticData(containerRef.current.clientWidth, 500);
       }
     };

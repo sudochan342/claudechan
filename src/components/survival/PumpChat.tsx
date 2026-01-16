@@ -46,7 +46,7 @@ function getRandomMessage(trigger: string = 'general') {
   return category.messages[Math.floor(Math.random() * category.messages.length)];
 }
 
-export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePumpEmbed = false }: PumpChatProps) {
+export function PumpChat({ contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE', usePumpEmbed = true }: PumpChatProps) {
   const { chatMessages, addChatMessage, viewerCount, setViewerCount, isPlaying, gameEvents } = useSurvivalStore();
   const [userMessage, setUserMessage] = useState('');
   const [showEmbed, setShowEmbed] = useState(usePumpEmbed);

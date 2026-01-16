@@ -9,6 +9,15 @@ import { GameLog } from './GameLog';
 import { AIBrains } from './AIBrain';
 import { PumpChat } from './PumpChat';
 import { TeachingPanel } from './TeachingPanel';
+import { TokenInfo } from './TokenInfo';
+
+// Configure your token here
+const TOKEN_CONFIG = {
+  contractAddress: 'YOUR_CONTRACT_ADDRESS_HERE', // Replace with your actual CA
+  tokenSymbol: '$CLAUDE',
+  twitterUrl: '#', // Replace with your Twitter URL
+  telegramUrl: '#', // Replace with your Telegram URL
+};
 
 export function SurvivalGame() {
   const {
@@ -40,6 +49,7 @@ export function SurvivalGame() {
   const [turnNumber, setTurnNumber] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [survivalTip, setSurvivalTip] = useState<string | null>(null);
+  const [showHero, setShowHero] = useState(true);
   const turnIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const processTurn = useCallback(async () => {
@@ -272,6 +282,7 @@ export function SurvivalGame() {
   }, [isPlaying, isPaused, gameSpeed, processTurn]);
 
   const handleStart = () => {
+    setShowHero(false);
     resetGame();
     startGame();
     addGameEvent({
@@ -289,8 +300,8 @@ export function SurvivalGame() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-400 via-cyan-400 to-blue-500">
-      {/* Decorative background */}
+    <div className="min-h-screen bg-gradient-to-br from-lime-400 via-emerald-400 to-teal-500">
+      {/* Animated background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <motion.div
           className="absolute -top-40 -right-40 w-96 h-96 bg-yellow-300/40 rounded-full blur-3xl"
@@ -298,26 +309,229 @@ export function SurvivalGame() {
           transition={{ duration: 20, repeat: Infinity }}
         />
         <motion.div
-          className="absolute top-1/2 -left-40 w-80 h-80 bg-pink-400/40 rounded-full blur-3xl"
+          className="absolute top-1/2 -left-40 w-80 h-80 bg-cyan-400/40 rounded-full blur-3xl"
           animate={{ scale: [1.2, 1, 1.2], y: [0, 50, 0] }}
           transition={{ duration: 15, repeat: Infinity }}
         />
         <motion.div
-          className="absolute -bottom-40 right-1/3 w-96 h-96 bg-purple-400/40 rounded-full blur-3xl"
+          className="absolute -bottom-40 right-1/3 w-96 h-96 bg-emerald-400/40 rounded-full blur-3xl"
           animate={{ scale: [1, 1.3, 1] }}
           transition={{ duration: 18, repeat: Infinity }}
         />
+        {/* Floating tokens */}
+        {[...Array(8)].map((_, i) => (
+          <motion.div
+            key={i}
+            className="absolute text-4xl"
+            style={{
+              left: `${10 + i * 12}%`,
+              top: `${20 + (i % 3) * 25}%`,
+            }}
+            animate={{
+              y: [0, -30, 0],
+              rotate: [0, 360],
+              opacity: [0.3, 0.7, 0.3],
+            }}
+            transition={{
+              duration: 4 + i,
+              repeat: Infinity,
+              delay: i * 0.5,
+            }}
+          >
+            {['🌲', '💎', '🚀', '⛽', '🌙', '🔥', '💰', '🎮'][i]}
+          </motion.div>
+        ))}
       </div>
 
-      {/* Header */}
-      <header className="relative bg-white/95 backdrop-blur-xl border-b-4 border-emerald-500 sticky top-0 z-50 shadow-xl">
+      {/* Hero Section */}
+      <AnimatePresence>
+        {showHero && !isPlaying && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="relative py-16 px-4"
+          >
+            <div className="max-w-6xl mx-auto text-center">
+              {/* Logo */}
+              <motion.div
+                className="flex items-center justify-center gap-6 mb-8"
+                initial={{ y: -50, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+              >
+                <motion.span
+                  className="text-8xl filter drop-shadow-2xl"
+                  animate={{
+                    rotate: [0, 5, -5, 0],
+                    scale: [1, 1.1, 1],
+                  }}
+                  transition={{ duration: 3, repeat: Infinity }}
+                >
+                  🌲
+                </motion.span>
+                <div>
+                  <h1 className="text-6xl md:text-8xl font-black text-white drop-shadow-2xl">
+                    CLAUDE
+                  </h1>
+                  <h2 className="text-4xl md:text-6xl font-black bg-gradient-to-r from-yellow-300 via-orange-300 to-red-300 bg-clip-text text-transparent">
+                    SURVIVAL
+                  </h2>
+                </div>
+                <motion.span
+                  className="text-8xl filter drop-shadow-2xl"
+                  animate={{
+                    rotate: [0, -5, 5, 0],
+                    scale: [1, 1.1, 1],
+                  }}
+                  transition={{ duration: 3, repeat: Infinity, delay: 0.5 }}
+                >
+                  🤖
+                </motion.span>
+              </motion.div>
+
+              {/* Tagline */}
+              <motion.p
+                className="text-2xl md:text-3xl font-bold text-white/90 mb-12 max-w-3xl mx-auto"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+              >
+                Watch AI fight for survival in a hostile forest!
+                <span className="block mt-2 text-yellow-200">
+                  THE FOREST vs CLAUDE - Who will win? 🔥
+                </span>
+              </motion.p>
+
+              {/* CTA Buttons */}
+              <motion.div
+                className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12"
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.6 }}
+              >
+                <motion.button
+                  onClick={handleStart}
+                  whileHover={{ scale: 1.05, y: -5 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="group relative px-12 py-6 bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 text-white font-black text-2xl rounded-3xl shadow-2xl shadow-orange-500/50 hover:shadow-orange-400/70 transition-all overflow-hidden"
+                >
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400"
+                    initial={{ x: '-100%' }}
+                    whileHover={{ x: '100%' }}
+                    transition={{ duration: 0.6 }}
+                  />
+                  <span className="relative flex items-center gap-4">
+                    <motion.span
+                      className="text-3xl"
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    >
+                      🎮
+                    </motion.span>
+                    PLAY NOW
+                    <motion.span
+                      className="text-3xl"
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: 0.5 }}
+                    >
+                      🚀
+                    </motion.span>
+                  </span>
+                </motion.button>
+
+                <motion.a
+                  href={`https://pump.fun/coin/${TOKEN_CONFIG.contractAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.05, y: -5 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-12 py-6 bg-white/20 backdrop-blur-xl text-white font-black text-2xl rounded-3xl border-4 border-white/40 hover:bg-white/30 transition-all shadow-2xl flex items-center gap-4"
+                >
+                  <span className="text-3xl">⛽</span>
+                  BUY {TOKEN_CONFIG.tokenSymbol}
+                </motion.a>
+              </motion.div>
+
+              {/* Token Stats Preview */}
+              <motion.div
+                className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto"
+                initial={{ y: 40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.8 }}
+              >
+                {[
+                  { label: 'LIVE VIEWERS', value: '1.2K+', icon: '👁' },
+                  { label: 'GAMES PLAYED', value: '5K+', icon: '🎮' },
+                  { label: 'TOKEN HOLDERS', value: '500+', icon: '💎' },
+                  { label: 'COMMUNITY', value: 'BASED', icon: '🔥' },
+                ].map((stat, i) => (
+                  <motion.div
+                    key={stat.label}
+                    whileHover={{ scale: 1.05, y: -5 }}
+                    className="bg-white/20 backdrop-blur-xl rounded-2xl p-4 border-2 border-white/30"
+                  >
+                    <span className="text-3xl">{stat.icon}</span>
+                    <p className="text-2xl font-black text-white mt-2">{stat.value}</p>
+                    <p className="text-sm font-bold text-white/70">{stat.label}</p>
+                  </motion.div>
+                ))}
+              </motion.div>
+
+              {/* Social Links */}
+              <motion.div
+                className="flex items-center justify-center gap-4 mt-8"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 1 }}
+              >
+                <motion.a
+                  href={TOKEN_CONFIG.twitterUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.1, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-2xl border-2 border-white/30 hover:bg-white/30 transition-all"
+                >
+                  𝕏
+                </motion.a>
+                <motion.a
+                  href={TOKEN_CONFIG.telegramUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.1, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-2xl border-2 border-white/30 hover:bg-white/30 transition-all"
+                >
+                  ✈️
+                </motion.a>
+                <motion.a
+                  href={`https://pump.fun/coin/${TOKEN_CONFIG.contractAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  whileHover={{ scale: 1.1, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-2xl border-2 border-white/30 hover:bg-white/30 transition-all"
+                >
+                  ⛽
+                </motion.a>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Header - Sticky when game is active */}
+      <header className={`relative bg-white/95 backdrop-blur-xl border-b-4 border-lime-500 ${isPlaying ? 'sticky top-0' : ''} z-50 shadow-xl`}>
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <motion.div
-                className="flex items-center gap-4"
+                className="flex items-center gap-4 cursor-pointer"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
+                onClick={() => !isPlaying && setShowHero(true)}
               >
                 <div className="relative">
                   <motion.div
@@ -328,16 +542,20 @@ export function SurvivalGame() {
                     🌲
                   </motion.div>
                   <motion.div
-                    className="absolute -inset-4 bg-emerald-400/50 rounded-full blur-xl -z-10"
+                    className="absolute -inset-4 bg-lime-400/50 rounded-full blur-xl -z-10"
                     animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity }}
                   />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-black bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-sm">
+                  <h1 className="text-3xl font-black bg-gradient-to-r from-lime-600 via-emerald-500 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">
                     CLAUDE SURVIVAL
                   </h1>
-                  <p className="text-sm font-bold text-emerald-600">The Ultimate AI Adventure 🎮</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-lime-600">{TOKEN_CONFIG.tokenSymbol}</span>
+                    <span className="text-gray-400">•</span>
+                    <span className="text-sm font-bold text-gray-500">on Pump.fun ⛽</span>
+                  </div>
                 </div>
               </motion.div>
 
@@ -386,7 +604,7 @@ export function SurvivalGame() {
                   onClick={handleStart}
                   whileHover={{ scale: 1.05, y: -3 }}
                   whileTap={{ scale: 0.95 }}
-                  className="group relative px-10 py-4 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white font-black text-lg rounded-2xl shadow-2xl shadow-emerald-500/50 hover:shadow-emerald-400/70 transition-all overflow-hidden"
+                  className="group relative px-10 py-4 bg-gradient-to-r from-lime-500 via-emerald-500 to-teal-500 text-white font-black text-lg rounded-2xl shadow-2xl shadow-lime-500/50 hover:shadow-lime-400/70 transition-all overflow-hidden"
                 >
                   <motion.div
                     className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 opacity-0 group-hover:opacity-100"
@@ -413,8 +631,8 @@ export function SurvivalGame() {
                     whileTap={{ scale: 0.95 }}
                     className={`px-6 py-3 rounded-xl font-bold text-lg transition-all shadow-lg ${
                       isPaused
-                        ? 'bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-emerald-500/40'
-                        : 'bg-white text-gray-700 border-3 border-emerald-400 hover:bg-emerald-50'
+                        ? 'bg-gradient-to-r from-lime-500 to-emerald-500 text-white shadow-lime-500/40'
+                        : 'bg-white text-gray-700 border-3 border-lime-400 hover:bg-lime-50'
                     }`}
                   >
                     {isPaused ? '▶️ Play' : '⏸️ Pause'}
@@ -439,7 +657,7 @@ export function SurvivalGame() {
                   </div>
 
                   <motion.button
-                    onClick={() => { endGame(); resetGame(); }}
+                    onClick={() => { endGame(); resetGame(); setShowHero(true); }}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-red-500/40 hover:shadow-red-500/60 transition-all"
@@ -488,15 +706,19 @@ export function SurvivalGame() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            <TokenInfo
+              contractAddress={TOKEN_CONFIG.contractAddress}
+              tokenSymbol={TOKEN_CONFIG.tokenSymbol}
+            />
             <PlayerStats />
             <TeachingPanel />
-            <PumpChat />
+            <PumpChat contractAddress={TOKEN_CONFIG.contractAddress} />
           </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="relative bg-white/95 backdrop-blur-xl border-t-4 border-emerald-500 py-8 mt-12">
+      <footer className="relative bg-white/95 backdrop-blur-xl border-t-4 border-lime-500 py-8 mt-12">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
@@ -508,26 +730,56 @@ export function SurvivalGame() {
                 🌲
               </motion.span>
               <div>
-                <p className="font-black text-2xl bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                <p className="font-black text-2xl bg-gradient-to-r from-lime-600 to-emerald-600 bg-clip-text text-transparent">
                   Claude Survival
                 </p>
-                <p className="font-semibold text-gray-500">Watch AI learn to survive!</p>
+                <p className="font-semibold text-gray-500">{TOKEN_CONFIG.tokenSymbol} on Pump.fun ⛽</p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/50" />
-                <span className="font-bold text-gray-600">THE FOREST</span>
-              </div>
-              <span className="text-2xl">⚔️</span>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/50" />
-                <span className="font-bold text-gray-600">CLAUDE</span>
-              </div>
+
+            <div className="flex items-center gap-4">
+              <motion.a
+                href={TOKEN_CONFIG.twitterUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                whileHover={{ scale: 1.1, y: -2 }}
+                className="w-12 h-12 bg-gradient-to-r from-blue-400 to-blue-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg"
+              >
+                𝕏
+              </motion.a>
+              <motion.a
+                href={TOKEN_CONFIG.telegramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                whileHover={{ scale: 1.1, y: -2 }}
+                className="w-12 h-12 bg-gradient-to-r from-cyan-400 to-blue-400 rounded-xl flex items-center justify-center text-white text-xl shadow-lg"
+              >
+                ✈️
+              </motion.a>
+              <motion.a
+                href={`https://pump.fun/coin/${TOKEN_CONFIG.contractAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                whileHover={{ scale: 1.1, y: -2 }}
+                className="w-12 h-12 bg-gradient-to-r from-lime-400 to-emerald-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg"
+              >
+                ⛽
+              </motion.a>
             </div>
-            <div className="px-5 py-2 bg-gradient-to-r from-gray-100 to-gray-200 rounded-full">
-              <span className="font-bold text-gray-600">⚡ Powered by OpenRouter AI</span>
+
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 shadow-lg shadow-purple-500/50" />
+              <span className="font-bold text-gray-600">FOREST</span>
+              <span className="text-2xl mx-2">⚔️</span>
+              <div className="w-4 h-4 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/50" />
+              <span className="font-bold text-gray-600">CLAUDE</span>
             </div>
+          </div>
+
+          <div className="mt-6 pt-6 border-t-2 border-gray-200 text-center">
+            <p className="text-gray-500 font-medium">
+              ⚡ Powered by AI • Built for degens • DYOR NFA 🚀
+            </p>
           </div>
         </div>
       </footer>

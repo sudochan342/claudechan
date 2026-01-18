@@ -193,8 +193,32 @@ export class PumpFunBuyer {
       data[24] = 0; // track_volume = false
 
       // 16-account buy instruction (use detected token program)
+      const creatorVault = deriveCreatorVault(creator);
+      const eventAuth = deriveEventAuthority();
+      const globalVol = deriveGlobalVolumeAccumulator();
+      const userVol = deriveUserVolumeAccumulator(userPubkey);
+      const feeConfig = deriveFeeConfig();
+      const globalPda = deriveGlobal();
+
+      console.log('Buy accounts:', {
+        global: globalPda.toBase58(),
+        feeRecipient: PUMPFUN_FEE_RECIPIENT.toBase58(),
+        mint: mint.toBase58(),
+        bondingCurve: bondingCurve.toBase58(),
+        associatedBondingCurve: associatedBondingCurve.toBase58(),
+        associatedUser: associatedUser.toBase58(),
+        user: userPubkey.toBase58(),
+        tokenProgram: tokenProgram.toBase58(),
+        creator: creator.toBase58(),
+        creatorVault: creatorVault.toBase58(),
+        eventAuth: eventAuth.toBase58(),
+        globalVol: globalVol.toBase58(),
+        userVol: userVol.toBase58(),
+        feeConfig: feeConfig.toBase58(),
+      });
+
       const keys = [
-        { pubkey: deriveGlobal(), isSigner: false, isWritable: false },
+        { pubkey: globalPda, isSigner: false, isWritable: false },
         { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
         { pubkey: mint, isSigner: false, isWritable: false },
         { pubkey: bondingCurve, isSigner: false, isWritable: true },
@@ -203,12 +227,12 @@ export class PumpFunBuyer {
         { pubkey: userPubkey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: tokenProgram, isSigner: false, isWritable: false },
-        { pubkey: deriveCreatorVault(creator), isSigner: false, isWritable: true },
-        { pubkey: deriveEventAuthority(), isSigner: false, isWritable: false },
+        { pubkey: creatorVault, isSigner: false, isWritable: true },
+        { pubkey: eventAuth, isSigner: false, isWritable: false },
         { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: deriveGlobalVolumeAccumulator(), isSigner: false, isWritable: false },
-        { pubkey: deriveUserVolumeAccumulator(userPubkey), isSigner: false, isWritable: true },
-        { pubkey: deriveFeeConfig(), isSigner: false, isWritable: false },
+        { pubkey: globalVol, isSigner: false, isWritable: false },
+        { pubkey: userVol, isSigner: false, isWritable: true },
+        { pubkey: feeConfig, isSigner: false, isWritable: false },
         { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
       ];
 

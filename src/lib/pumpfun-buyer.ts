@@ -382,21 +382,19 @@ export class PumpFunBuyer {
         // For sell, minSolOut is what we expect to receive (apply slippage down)
         const minSolOut = BigInt(1); // Accept any SOL to ensure sell goes through
 
-        // Sell instruction data: 8 discriminator + 8 tokenAmount + 8 minSolOut + 1 trackVolume = 25 bytes
-        const data = new Uint8Array(25);
+        // Sell instruction data: 8 discriminator + 8 tokenAmount + 8 minSolOut = 24 bytes
+        const data = new Uint8Array(24);
         data.set(SELL_DISCRIMINATOR, 0);
         data.set(writeU64LE(tokenAmount), 8);
         data.set(writeU64LE(minSolOut), 16);
-        data[24] = 0; // track_volume = false
 
-        // 16-account sell instruction (January 2025 format - same as buy)
+        // Derive PDAs for sell (14 accounts - different from buy's 16)
         const creatorVault = deriveCreatorVault(creator);
         const eventAuth = deriveEventAuthority();
-        const globalVol = deriveGlobalVolumeAccumulator();
-        const userVol = deriveUserVolumeAccumulator(userPubkey);
         const feeConfig = deriveFeeConfig();
         const globalPda = deriveGlobal();
 
+        // 14-account sell instruction (January 2025 format - different order than buy!)
         const keys = [
           { pubkey: globalPda, isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
@@ -406,12 +404,10 @@ export class PumpFunBuyer {
           { pubkey: associatedUser, isSigner: false, isWritable: true },
           { pubkey: userPubkey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: tokenProgram, isSigner: false, isWritable: false },
           { pubkey: creatorVault, isSigner: false, isWritable: true },
+          { pubkey: tokenProgram, isSigner: false, isWritable: false },
           { pubkey: eventAuth, isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: globalVol, isSigner: false, isWritable: false },
-          { pubkey: userVol, isSigner: false, isWritable: true },
           { pubkey: feeConfig, isSigner: false, isWritable: false },
           { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
         ];

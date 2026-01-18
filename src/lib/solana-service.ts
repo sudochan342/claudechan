@@ -13,6 +13,7 @@ import {
 import {
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
+  TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { solToLamports, lamportsToSol, retryWithBackoff } from './helpers';
 
@@ -49,9 +50,9 @@ export class SolanaService {
     return lamportsToSol(balance);
   }
 
-  async getTokenBalance(walletPubkey: PublicKey, mintPubkey: PublicKey): Promise<number> {
+  async getTokenBalance(walletPubkey: PublicKey, mintPubkey: PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM_ID): Promise<number> {
     try {
-      const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+      const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey, false, tokenProgram);
       const balance = await this.connection.getTokenAccountBalance(ata);
       return Number(balance.value.amount);
     } catch {

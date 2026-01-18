@@ -19,9 +19,12 @@ export function Wallets() {
     collectAllFunds,
     getMasterKeypair,
     addLog,
+    clearLogs,
+    updateSettings,
   } = useBotStore();
 
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [fundAmount, setFundAmount] = useState('0.05');
   const [showFundModal, setShowFundModal] = useState(false);
   const [showStealthFundModal, setShowStealthFundModal] = useState(false);
@@ -29,6 +32,7 @@ export function Wallets() {
   const [intermediateCount, setIntermediateCount] = useState('3');
   const [importText, setImportText] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<{ publicKey: string; privateKey: string } | null>(null);
 
   const fundedCount = wallets.filter(w => w.funded).length;
   const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
@@ -90,6 +94,32 @@ export function Wallets() {
     }
     setShowStealthFundModal(false);
     await stealthFundWallets(amount, intCount);
+  };
+
+  const handleResetAllData = () => {
+    // Clear wallets
+    deleteAllWallets();
+    // Clear logs
+    clearLogs();
+    // Reset settings to default (except keep RPC URL)
+    updateSettings({
+      masterPrivateKey: '',
+      slippageBps: 500,
+      buyDelayMinMs: 3000,
+      buyDelayMaxMs: 10000,
+    });
+    // Clear localStorage completely
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pumpfun_bot_wallets');
+      localStorage.removeItem('pumpfun-bot-storage');
+    }
+    setShowConfirmReset(false);
+    addLog('warning', 'All data has been reset');
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    addLog('info', `${label} copied to clipboard`);
   };
 
   return (
@@ -218,6 +248,7 @@ export function Wallets() {
       {/* Wallet List */}
       <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 max-h-96 overflow-y-auto">
         <h3 className="text-lg font-semibold text-white mb-3">Wallet List</h3>
+        <p className="text-gray-500 text-xs mb-2">Click a wallet to view private key</p>
         {wallets.length === 0 ? (
           <p className="text-gray-400 text-center py-4">No wallets yet. Generate some!</p>
         ) : (
@@ -225,7 +256,8 @@ export function Wallets() {
             {wallets.map((wallet, index) => (
               <div
                 key={wallet.publicKey}
-                className="flex items-center justify-between bg-gray-700 rounded px-3 py-2"
+                onClick={() => setSelectedWallet({ publicKey: wallet.publicKey, privateKey: wallet.privateKey })}
+                className="flex items-center justify-between bg-gray-700 hover:bg-gray-600 rounded px-3 py-2 cursor-pointer transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <span className="text-gray-400 text-sm">{index + 1}.</span>
@@ -247,6 +279,20 @@ export function Wallets() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Reset All Data Button */}
+      <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-red-400 mb-2">Danger Zone</h3>
+        <p className="text-gray-400 text-sm mb-3">
+          Reset all data including wallets, settings, and logs. This cannot be undone!
+        </p>
+        <button
+          onClick={() => setShowConfirmReset(true)}
+          className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors"
+        >
+          Reset All Data
+        </button>
       </div>
 
       {/* Delete Confirmation Modal */}
@@ -396,6 +442,94 @@ export function Wallets() {
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg font-semibold"
               >
                 Stealth Fund
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet Details Modal */}
+      {selectedWallet && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-4">Wallet Details</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-gray-400 text-sm block mb-1">Public Key</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-gray-700 text-green-400 px-3 py-2 rounded text-sm font-mono break-all">
+                    {selectedWallet.publicKey}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(selectedWallet.publicKey, 'Public key')}
+                    className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-gray-400 text-sm block mb-1">Private Key (Keep Secret!)</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-gray-700 text-yellow-400 px-3 py-2 rounded text-sm font-mono break-all">
+                    {selectedWallet.privateKey}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(selectedWallet.privateKey, 'Private key')}
+                    className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="text-red-400 text-xs mt-2">
+                  Never share your private key! Anyone with this key can access your funds.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <button
+                onClick={() => setSelectedWallet(null)}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset All Data Confirmation Modal */}
+      {showConfirmReset && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4 border border-red-600">
+            <h3 className="text-xl font-bold text-red-400 mb-4">Reset All Data?</h3>
+            <p className="text-gray-300 mb-2">
+              This will permanently delete:
+            </p>
+            <ul className="text-gray-400 text-sm mb-4 list-disc list-inside">
+              <li>All generated wallets and private keys</li>
+              <li>Master wallet configuration</li>
+              <li>All logs and history</li>
+              <li>Buy/sell settings</li>
+            </ul>
+            <p className="text-yellow-400 text-sm mb-6">
+              Make sure you have exported your wallets if you need them!
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmReset(false)}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetAllData}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Reset Everything
               </button>
             </div>
           </div>

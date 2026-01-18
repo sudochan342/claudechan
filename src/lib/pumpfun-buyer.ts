@@ -328,39 +328,57 @@ export class PumpFunBuyer {
     slippageBps: number = 1000,
     onProgress?: (current: number, total: number, wallet: string, status: string) => void
   ): Promise<{ success: boolean; totalSolReceived: number; walletsSold: number }> {
-    const holdings = Array.from(this.holdings.values()).filter(h => h.tokenBalance > BigInt(0));
-    if (holdings.length === 0) {
+    // Get all wallets and scan for token balances (don't rely on in-memory holdings)
+    const allWallets = this.walletManager.getAllWallets();
+    const tokenProgram = await this.getTokenProgramForMint(mint);
+
+    // Find wallets with token balance
+    const walletsWithTokens: { wallet: BundleWallet; balance: number }[] = [];
+    for (const wallet of allWallets) {
+      try {
+        const balance = await this.solanaService.getTokenBalance(wallet.keypair.publicKey, mint, tokenProgram);
+        if (balance > 0) {
+          walletsWithTokens.push({ wallet, balance });
+        }
+      } catch {
+        // Skip wallets where we can't get balance
+      }
+    }
+
+    if (walletsWithTokens.length === 0) {
+      console.log('No wallets found with token balance');
       return { success: false, totalSolReceived: 0, walletsSold: 0 };
     }
+
+    console.log(`Found ${walletsWithTokens.length} wallets with tokens to sell`);
 
     let totalSolReceived = 0;
     let walletsSold = 0;
 
-    for (let i = 0; i < holdings.length; i++) {
-      const holding = holdings[i];
-      const wallet = holding.wallet;
+    for (let i = 0; i < walletsWithTokens.length; i++) {
+      const { wallet, balance } = walletsWithTokens[i];
 
       if (onProgress) {
-        onProgress(i + 1, holdings.length, wallet.info.publicKey, 'selling');
+        onProgress(i + 1, walletsWithTokens.length, wallet.info.publicKey, 'selling');
       }
 
       try {
-        const actualBalance = await this.solanaService.getTokenBalance(wallet.keypair.publicKey, mint);
-        if (actualBalance === 0) continue;
-
         const userPubkey = wallet.keypair.publicKey;
         const bondingCurve = deriveBondingCurve(mint);
-        const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true);
-        const associatedUser = await getAssociatedTokenAddress(mint, userPubkey);
+        const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true, tokenProgram);
+        const associatedUser = await getAssociatedTokenAddress(mint, userPubkey, false, tokenProgram);
 
-        const tokenAmount = BigInt(actualBalance);
-        const minSolOut = (tokenAmount * BigInt(10000 - slippageBps)) / BigInt(10000);
+        const tokenAmount = BigInt(balance);
+        // For sell, minSolOut is what we expect to receive (apply slippage down)
+        const minSolOut = BigInt(1); // Accept any SOL to ensure sell goes through
 
+        // Sell instruction data: 8 discriminator + 8 tokenAmount + 8 minSolOut = 24 bytes
         const data = new Uint8Array(24);
         data.set(SELL_DISCRIMINATOR, 0);
         data.set(writeU64LE(tokenAmount), 8);
         data.set(writeU64LE(minSolOut), 16);
 
+        // 12-account sell instruction (sell uses simpler format than buy)
         const keys = [
           { pubkey: deriveGlobal(), isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
@@ -371,14 +389,16 @@ export class PumpFunBuyer {
           { pubkey: userPubkey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: tokenProgram, isSigner: false, isWritable: false },
           { pubkey: deriveEventAuthority(), isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
         ];
 
+        console.log(`Selling ${balance} tokens from ${wallet.info.publicKey.slice(0, 8)}...`);
+
         const instructions = [
           ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }),
-          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }),
           new TransactionInstruction({
             programId: PUMPFUN_PROGRAM_ID,
             keys,
@@ -396,22 +416,22 @@ export class PumpFunBuyer {
         const transaction = new VersionedTransaction(messageV0);
         transaction.sign([wallet.keypair]);
 
-        await this.solanaService.sendVersionedTransaction(transaction);
+        const sig = await this.solanaService.sendVersionedTransaction(transaction);
+        console.log(`Sold! Signature: ${sig}`);
 
-        const solReceived = lamportsToSol(Number(minSolOut));
-        totalSolReceived += solReceived;
+        totalSolReceived += lamportsToSol(Number(minSolOut));
         walletsSold++;
         this.holdings.delete(wallet.info.publicKey);
 
         if (onProgress) {
-          onProgress(i + 1, holdings.length, wallet.info.publicKey, 'sold');
+          onProgress(i + 1, walletsWithTokens.length, wallet.info.publicKey, 'sold');
         }
 
         await sleep(randomDelay(1000, 3000));
       } catch (error) {
         console.error('Sell failed:', error);
         if (onProgress) {
-          onProgress(i + 1, holdings.length, wallet.info.publicKey, 'failed');
+          onProgress(i + 1, walletsWithTokens.length, wallet.info.publicKey, `failed: ${error}`);
         }
       }
     }

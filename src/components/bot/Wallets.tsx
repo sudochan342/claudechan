@@ -77,6 +77,21 @@ export function Wallets() {
     await quickFundWallets(amount);
   };
 
+  const handleStealthFund = async () => {
+    const amount = parseFloat(stealthFundAmount);
+    const intCount = parseInt(intermediateCount);
+    if (isNaN(amount) || amount <= 0) {
+      addLog('error', 'Invalid amount');
+      return;
+    }
+    if (isNaN(intCount) || intCount < 1 || intCount > 10) {
+      addLog('error', 'Intermediate count must be between 1 and 10');
+      return;
+    }
+    setShowStealthFundModal(false);
+    await stealthFundWallets(amount, intCount);
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-green-400">Wallets</h2>
@@ -171,22 +186,32 @@ export function Wallets() {
       {masterKeypair && wallets.length > 0 && (
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <h3 className="text-lg font-semibold text-white mb-3">Funding</h3>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 mb-2">
             <button
               onClick={() => setShowFundModal(true)}
               disabled={isLoading || fundedCount === wallets.length}
               className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors"
             >
-              Fund Wallets
+              Direct Fund
             </button>
             <button
-              onClick={collectAllFunds}
-              disabled={isLoading || fundedCount === 0}
-              className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors"
+              onClick={() => setShowStealthFundModal(true)}
+              disabled={isLoading || fundedCount === wallets.length}
+              className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors"
             >
-              Collect All
+              Stealth Fund
             </button>
           </div>
+          <button
+            onClick={collectAllFunds}
+            disabled={isLoading || fundedCount === 0}
+            className="w-full bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors"
+          >
+            Collect All Funds
+          </button>
+          <p className="text-gray-400 text-xs mt-2">
+            Stealth Fund uses intermediate wallets to hide the master-to-sub connection on Bubblemaps.
+          </p>
         </div>
       )}
 
@@ -313,6 +338,64 @@ export function Wallets() {
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold"
               >
                 Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stealth Fund Modal */}
+      {showStealthFundModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-2">Stealth Fund</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Uses intermediate wallets to break the direct master-to-sub chain visible on Bubblemaps.
+            </p>
+            <div className="space-y-4 mb-4">
+              <div>
+                <label className="text-gray-300 text-sm block mb-1">
+                  SOL per wallet ({wallets.length - fundedCount} unfunded):
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={stealthFundAmount}
+                  onChange={(e) => setStealthFundAmount(e.target.value)}
+                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                  placeholder="0.05"
+                />
+              </div>
+              <div>
+                <label className="text-gray-300 text-sm block mb-1">
+                  Intermediate wallets (1-10):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={intermediateCount}
+                  onChange={(e) => setIntermediateCount(e.target.value)}
+                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                  placeholder="3"
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  More intermediates = better distribution but more tx fees
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowStealthFundModal(false)}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStealthFund}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Stealth Fund
               </button>
             </div>
           </div>

@@ -34,14 +34,6 @@ export const config = {
   // Solana RPC
   solana: {
     rpcUrl: getEnvVar('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
-    wsUrl: getEnvVar('SOLANA_WS_URL', 'wss://api.mainnet-beta.solana.com'),
-  },
-
-  // Jito
-  jito: {
-    blockEngineUrl: getEnvVar('JITO_BLOCK_ENGINE_URL', 'https://mainnet.block-engine.jito.wtf'),
-    tipAccount: getEnvVar('JITO_TIP_ACCOUNT', '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
-    tipAmountSol: getEnvNumber('JITO_TIP_AMOUNT_SOL', 0.001),
   },
 
   // Master wallet
@@ -52,17 +44,23 @@ export const config = {
   // Bot settings
   bot: {
     maxWallets: getEnvNumber('MAX_WALLETS', 20),
-    defaultBuyAmountSol: getEnvNumber('DEFAULT_BUY_AMOUNT_SOL', 0.01),
+    defaultBuyAmountSol: getEnvNumber('DEFAULT_BUY_AMOUNT_SOL', 0.05),
   },
 
-  // Stealth funding settings
+  // CEX-Style Stealth funding settings
   stealthFunding: {
-    minDelayMs: getEnvNumber('MIN_DELAY_MS', 5000),
-    maxDelayMs: getEnvNumber('MAX_DELAY_MS', 30000),
+    minDelayMs: getEnvNumber('MIN_DELAY_MS', 60000),
+    maxDelayMs: getEnvNumber('MAX_DELAY_MS', 300000),
     useIntermediateWallets: getEnvBoolean('USE_INTERMEDIATE_WALLETS', true),
-    intermediateWalletCount: getEnvNumber('INTERMEDIATE_WALLET_COUNT', 3),
+    intermediateWalletCount: getEnvNumber('HOT_WALLET_COUNT', 5),
     randomizeAmounts: true,
-    amountVariancePercent: 15,
+    amountVariancePercent: 40,
+  },
+
+  // Spread buy settings
+  spreadBuy: {
+    minDelayMs: getEnvNumber('BUY_MIN_DELAY_MS', 3000),
+    maxDelayMs: getEnvNumber('BUY_MAX_DELAY_MS', 10000),
   },
 
   // PumpFun settings

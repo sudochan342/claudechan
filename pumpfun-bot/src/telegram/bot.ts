@@ -1,4 +1,4 @@
-import { Bot, Context, session, SessionFlavor, InlineKeyboard } from 'grammy';
+import { Bot, Context, session, SessionFlavor, InlineKeyboard, InputFile } from 'grammy';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import { SolanaService } from '../services/solana';
 import { WalletManager } from '../core/wallet-manager';
@@ -238,7 +238,7 @@ Invested: ${holdings.totalSolSpent.toFixed(4)} SOL
 
   private async exportWallets(ctx: BotContext): Promise<void> {
     const data = this.walletManager.exportWallets();
-    await ctx.replyWithDocument({ source: Buffer.from(data), filename: 'wallets.json' });
+    await ctx.replyWithDocument(new InputFile(Buffer.from(data), 'wallets.json'));
     await ctx.reply('Keep this file secure!');
   }
 

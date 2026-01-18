@@ -26,12 +26,16 @@ async function main() {
   const masterWallet = keypairFromBase58(config.masterWallet.privateKey);
   console.log('   Address:', masterWallet.publicKey.toBase58());
 
-  // Check master wallet balance
-  const balance = await solanaService.getBalanceSol(masterWallet.publicKey);
-  console.log('   Balance:', balance.toFixed(4), 'SOL\n');
+  // Check master wallet balance (non-blocking)
+  try {
+    const balance = await solanaService.getBalanceSol(masterWallet.publicKey);
+    console.log('   Balance:', balance.toFixed(4), 'SOL\n');
 
-  if (balance < 0.01) {
-    console.warn('⚠️  Warning: Master wallet has low balance. Fund it before using the bot.\n');
+    if (balance < 0.01) {
+      console.warn('⚠️  Warning: Master wallet has low balance. Fund it before using the bot.\n');
+    }
+  } catch (error) {
+    console.warn('⚠️  Could not fetch balance (RPC may be slow). Bot will still start.\n');
   }
 
   // Initialize Telegram bot
@@ -61,7 +65,6 @@ async function main() {
   console.log('Configuration:');
   console.log('   Max wallets:', config.bot.maxWallets);
   console.log('   Default buy amount:', config.bot.defaultBuyAmountSol, 'SOL');
-  console.log('   Jito tip:', config.jito.tipAmountSol, 'SOL');
   console.log('   Stealth funding:', config.stealthFunding.useIntermediateWallets ? 'Enabled' : 'Disabled');
   console.log('   Authorized users:', config.telegram.authorizedUsers.length || 'All (open access)');
   console.log('\nPress Ctrl+C to stop.\n');

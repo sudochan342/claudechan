@@ -23,23 +23,28 @@ export async function GET(request: NextRequest) {
       slippageBps,
     });
 
-    // Use the public Jupiter API from server-side (no CORS issues)
-    const response = await fetch(`https://quote-api.jup.ag/v6/quote?${params}`, {
+    // Use the new Jupiter Swap API v1 endpoint (v6 was deprecated Oct 2025)
+    const url = `https://lite-api.jup.ag/swap/v1/quote?${params}`;
+    console.log('Fetching Jupiter quote:', url);
+
+    const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
       },
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    console.log('Jupiter quote response status:', response.status);
 
     if (!response.ok) {
-      console.error('Jupiter quote error:', response.status, data);
+      console.error('Jupiter quote error:', response.status, responseText);
       return NextResponse.json(
-        { error: data.error || `Jupiter API error: ${response.status}` },
+        { error: `Jupiter API error ${response.status}: ${responseText}` },
         { status: response.status }
       );
     }
 
+    const data = JSON.parse(responseText);
     return NextResponse.json(data);
   } catch (error) {
     console.error('Jupiter quote proxy error:', error);

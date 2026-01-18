@@ -64,21 +64,20 @@ export class JupiterService {
         outputMint,
         amount: amount.toString(),
         slippageBps: slippageBps.toString(),
-        // Don't restrict intermediate tokens - allows PumpFun routing
       });
 
-      const url = `https://api.jup.ag/swap/v1/quote?${params}`;
+      // Use our server-side proxy to avoid CORS and auth issues
+      const url = `/api/jupiter/quote?${params}`;
       console.log('Jupiter quote URL:', url);
 
       const response = await fetch(url);
-      const responseText = await response.text();
+      const data = await response.json();
 
       if (!response.ok) {
-        console.error('Jupiter quote error:', response.status, responseText);
-        return { quote: null, error: `Jupiter API ${response.status}: ${responseText}` };
+        console.error('Jupiter quote error:', response.status, data);
+        return { quote: null, error: data.error || `Jupiter API ${response.status}` };
       }
 
-      const data = JSON.parse(responseText);
       console.log('Jupiter quote response:', data);
       return { quote: data };
     } catch (error) {
@@ -94,7 +93,8 @@ export class JupiterService {
     priorityFeeLamports: number = 100000
   ): Promise<JupiterSwapResponse | null> {
     try {
-      const response = await fetch('https://api.jup.ag/swap/v1/swap', {
+      // Use our server-side proxy to avoid CORS and auth issues
+      const response = await fetch('/api/jupiter/swap', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -102,24 +102,18 @@ export class JupiterService {
         body: JSON.stringify({
           quoteResponse: quote,
           userPublicKey,
-          dynamicComputeUnitLimit: true,
-          dynamicSlippage: true,
-          prioritizationFeeLamports: {
-            priorityLevelWithMaxLamports: {
-              maxLamports: priorityFeeLamports,
-              priorityLevel: 'high',
-            },
-          },
+          prioritizationFeeLamports: priorityFeeLamports,
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const error = await response.text();
-        console.error('Jupiter swap build error:', error);
+        console.error('Jupiter swap build error:', response.status, data);
         return null;
       }
 
-      return await response.json();
+      return data;
     } catch (error) {
       console.error('Jupiter swap build failed:', error);
       return null;

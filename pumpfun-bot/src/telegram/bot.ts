@@ -1,11 +1,10 @@
-import { Bot, Context, session, SessionFlavor, InlineKeyboard, Keyboard } from 'grammy';
+import { Bot, Context, session, SessionFlavor, InlineKeyboard } from 'grammy';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import { SolanaService } from '../services/solana';
-import { JitoService } from '../services/jito';
 import { WalletManager } from '../core/wallet-manager';
 import { StealthFunder } from '../core/stealth-funder';
 import { PumpFunBuyer } from '../core/pumpfun-buyer';
-import { TelegramUserSession } from '../types';
+import { TokenManager } from '../core/token-manager';
 import {
   keypairFromBase58,
   lamportsToSol,
@@ -13,7 +12,6 @@ import {
   isValidPublicKey,
 } from '../utils/helpers';
 
-// Session data interface
 interface SessionData {
   step: string;
   data: Record<string, unknown>;
@@ -24,10 +22,10 @@ type BotContext = Context & SessionFlavor<SessionData>;
 export class TelegramBot {
   private bot: Bot<BotContext>;
   private solanaService: SolanaService;
-  private jitoService: JitoService;
   private walletManager: WalletManager;
   private stealthFunder: StealthFunder;
   private pumpFunBuyer: PumpFunBuyer;
+  private tokenManager: TokenManager;
   private masterWallet: Keypair;
   private authorizedUsers: Set<number>;
 
@@ -39,10 +37,10 @@ export class TelegramBot {
   ) {
     this.bot = new Bot<BotContext>(token);
     this.solanaService = solanaService;
-    this.jitoService = new JitoService(solanaService.getConnection());
     this.walletManager = new WalletManager(solanaService);
     this.stealthFunder = new StealthFunder(solanaService, this.walletManager);
-    this.pumpFunBuyer = new PumpFunBuyer(solanaService, this.jitoService, this.walletManager);
+    this.pumpFunBuyer = new PumpFunBuyer(solanaService, this.walletManager);
+    this.tokenManager = new TokenManager(solanaService);
     this.masterWallet = masterWallet;
     this.authorizedUsers = new Set(authorizedUsers);
 
@@ -51,678 +49,556 @@ export class TelegramBot {
   }
 
   private setupMiddleware(): void {
-    // Session middleware
     this.bot.use(
       session({
-        initial: (): SessionData => ({
-          step: '',
-          data: {},
-        }),
+        initial: (): SessionData => ({ step: '', data: {} }),
       })
     );
 
-    // Auth middleware
     this.bot.use(async (ctx, next) => {
       const userId = ctx.from?.id;
       if (!userId) return;
-
-      // Allow if no users are authorized (open access) or user is in list
       if (this.authorizedUsers.size === 0 || this.authorizedUsers.has(userId)) {
         await next();
       } else {
-        await ctx.reply('⛔ Unauthorized. Contact the admin to get access.');
+        await ctx.reply('Unauthorized');
       }
     });
   }
 
   private setupHandlers(): void {
-    // Start command
-    this.bot.command('start', async ctx => {
-      const welcomeMessage = `
-🚀 **PumpFun Bundle Buyer Bot**
+    // Main menu
+    this.bot.command('start', ctx => this.showDashboard(ctx));
+    this.bot.command('menu', ctx => this.showDashboard(ctx));
 
-Welcome! This bot helps you buy PumpFun tokens using multiple wallets in a bundle.
+    // Quick commands
+    this.bot.command('wallets', ctx => this.showWallets(ctx));
+    this.bot.command('buy', ctx => this.showBuyMenu(ctx));
+    this.bot.command('sell', ctx => this.showSellMenu(ctx));
+    this.bot.command('fund', ctx => this.showFundMenu(ctx));
+    this.bot.command('status', ctx => this.showStatus(ctx));
 
-**Features:**
-• Generate & manage multiple wallets
-• Stealth funding (avoid Bubblemaps detection)
-• Bundle buying via Jito
-• Token info lookup
+    // Callback handlers
+    this.setupCallbacks();
 
-**Commands:**
-/wallets - Manage wallets
-/fund - Fund wallets (stealth mode)
-/buy - Bundle buy tokens
-/balance - Check balances
-/settings - Bot settings
-/help - Show this help
-
-Use the buttons below to get started:
-      `;
-
-      const keyboard = new InlineKeyboard()
-        .text('📊 Wallets', 'menu_wallets')
-        .text('💰 Fund', 'menu_fund')
-        .row()
-        .text('🛒 Buy', 'menu_buy')
-        .text('💵 Balance', 'menu_balance')
-        .row()
-        .text('ℹ️ Help', 'menu_help');
-
-      await ctx.reply(welcomeMessage, {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      });
-    });
-
-    // Wallets command
-    this.bot.command('wallets', async ctx => this.handleWalletsMenu(ctx));
-    this.bot.callbackQuery('menu_wallets', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.handleWalletsMenu(ctx);
-    });
-
-    // Fund command
-    this.bot.command('fund', async ctx => this.handleFundMenu(ctx));
-    this.bot.callbackQuery('menu_fund', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.handleFundMenu(ctx);
-    });
-
-    // Buy command
-    this.bot.command('buy', async ctx => this.handleBuyMenu(ctx));
-    this.bot.callbackQuery('menu_buy', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.handleBuyMenu(ctx);
-    });
-
-    // Balance command
-    this.bot.command('balance', async ctx => this.handleBalanceMenu(ctx));
-    this.bot.callbackQuery('menu_balance', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.handleBalanceMenu(ctx);
-    });
-
-    // Help command
-    this.bot.command('help', async ctx => this.handleHelp(ctx));
-    this.bot.callbackQuery('menu_help', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.handleHelp(ctx);
-    });
-
-    // Callback query handlers
-    this.setupCallbackHandlers();
-
-    // Message handlers
-    this.setupMessageHandlers();
+    // Text handler
+    this.bot.on('message:text', ctx => this.handleText(ctx));
   }
 
-  private setupCallbackHandlers(): void {
-    // Generate wallets
-    this.bot.callbackQuery(/^gen_wallets_(\d+)$/, async ctx => {
+  private setupCallbacks(): void {
+    // Dashboard
+    this.bot.callbackQuery('dashboard', ctx => { ctx.answerCallbackQuery(); this.showDashboard(ctx); });
+
+    // Wallets
+    this.bot.callbackQuery('wallets', ctx => { ctx.answerCallbackQuery(); this.showWallets(ctx); });
+    this.bot.callbackQuery(/^gen_(\d+)$/, async ctx => {
       await ctx.answerCallbackQuery();
       const count = parseInt(ctx.match![1]);
       await this.generateWallets(ctx, count);
     });
+    this.bot.callbackQuery('export_keys', ctx => { ctx.answerCallbackQuery(); this.exportWallets(ctx); });
+    this.bot.callbackQuery('refresh_bal', ctx => { ctx.answerCallbackQuery(); this.refreshBalances(ctx); });
+    this.bot.callbackQuery('delete_wallets', ctx => { ctx.answerCallbackQuery(); this.confirmDeleteWallets(ctx); });
+    this.bot.callbackQuery('confirm_delete', ctx => { ctx.answerCallbackQuery(); this.deleteAllWallets(ctx); });
 
-    // Fund wallets
-    this.bot.callbackQuery('fund_stealth', async ctx => {
-      await ctx.answerCallbackQuery();
+    // Funding
+    this.bot.callbackQuery('fund_menu', ctx => { ctx.answerCallbackQuery(); this.showFundMenu(ctx); });
+    this.bot.callbackQuery('fund_cex', ctx => {
+      ctx.answerCallbackQuery();
       ctx.session.step = 'fund_amount';
-      ctx.session.data.fundMode = 'stealth';
-      await ctx.reply('💰 Enter the total amount of SOL to distribute across wallets:');
+      ctx.session.data.mode = 'cex';
+      ctx.reply('Enter total SOL amount to distribute:');
     });
-
-    this.bot.callbackQuery('fund_quick', async ctx => {
-      await ctx.answerCallbackQuery();
+    this.bot.callbackQuery('fund_quick', ctx => {
+      ctx.answerCallbackQuery();
       ctx.session.step = 'fund_amount';
-      ctx.session.data.fundMode = 'quick';
-      await ctx.reply('💰 Enter the amount of SOL per wallet:');
+      ctx.session.data.mode = 'quick';
+      ctx.reply('Enter SOL amount per wallet:');
     });
+    this.bot.callbackQuery('collect_all', ctx => { ctx.answerCallbackQuery(); this.collectFunds(ctx); });
 
-    // Buy tokens
-    this.bot.callbackQuery('buy_start', async ctx => {
-      await ctx.answerCallbackQuery();
+    // Buy
+    this.bot.callbackQuery('buy_menu', ctx => { ctx.answerCallbackQuery(); this.showBuyMenu(ctx); });
+    this.bot.callbackQuery('buy_start', ctx => {
+      ctx.answerCallbackQuery();
       ctx.session.step = 'buy_token';
-      await ctx.reply('🪙 Enter the token mint address (CA):');
+      ctx.reply('Enter token address (CA):');
     });
-
-    // Refresh balances
-    this.bot.callbackQuery('refresh_balances', async ctx => {
-      await ctx.answerCallbackQuery('Refreshing...');
-      await this.refreshBalances(ctx);
-    });
-
-    // Export wallets
-    this.bot.callbackQuery('export_wallets', async ctx => {
+    this.bot.callbackQuery(/^buy_wallets_(\d+)$/, async ctx => {
       await ctx.answerCallbackQuery();
-      await this.exportWallets(ctx);
+      ctx.session.data.walletCount = parseInt(ctx.match![1]);
+      await this.confirmBuy(ctx);
+    });
+    this.bot.callbackQuery('confirm_buy', ctx => { ctx.answerCallbackQuery(); this.executeBuy(ctx); });
+
+    // Sell
+    this.bot.callbackQuery('sell_menu', ctx => { ctx.answerCallbackQuery(); this.showSellMenu(ctx); });
+    this.bot.callbackQuery('sell_all', ctx => { ctx.answerCallbackQuery(); this.executeSellAll(ctx); });
+    this.bot.callbackQuery('sell_50', ctx => { ctx.answerCallbackQuery(); this.executeSellPercent(ctx, 50); });
+    this.bot.callbackQuery('sell_25', ctx => { ctx.answerCallbackQuery(); this.executeSellPercent(ctx, 25); });
+
+    // Token Management
+    this.bot.callbackQuery('token_menu', ctx => { ctx.answerCallbackQuery(); this.showTokenMenu(ctx); });
+    this.bot.callbackQuery('burn_lp', ctx => {
+      ctx.answerCallbackQuery();
+      ctx.session.step = 'burn_lp_mint';
+      ctx.reply('Enter LP token mint address:');
+    });
+    this.bot.callbackQuery('edit_meta', ctx => {
+      ctx.answerCallbackQuery();
+      ctx.session.step = 'edit_meta_mint';
+      ctx.reply('Enter token mint address to edit:');
+    });
+    this.bot.callbackQuery('revoke_mint', ctx => {
+      ctx.answerCallbackQuery();
+      ctx.session.step = 'revoke_mint_address';
+      ctx.reply('Enter token mint address:');
     });
 
-    // Delete all wallets
-    this.bot.callbackQuery('delete_all_wallets', async ctx => {
-      await ctx.answerCallbackQuery();
-      const keyboard = new InlineKeyboard()
-        .text('✅ Yes, delete all', 'confirm_delete_all')
-        .text('❌ Cancel', 'cancel_action');
-      await ctx.reply('⚠️ Are you sure you want to delete ALL wallets? This cannot be undone!', {
-        reply_markup: keyboard,
-      });
-    });
-
-    this.bot.callbackQuery('confirm_delete_all', async ctx => {
-      await ctx.answerCallbackQuery();
-      this.walletManager.deleteAllWallets();
-      await ctx.reply('🗑️ All wallets have been deleted.');
-    });
-
-    this.bot.callbackQuery('cancel_action', async ctx => {
-      await ctx.answerCallbackQuery('Cancelled');
+    // Cancel
+    this.bot.callbackQuery('cancel', ctx => {
+      ctx.answerCallbackQuery();
       ctx.session.step = '';
       ctx.session.data = {};
-      await ctx.reply('Action cancelled.');
-    });
-
-    // Collect funds
-    this.bot.callbackQuery('collect_funds', async ctx => {
-      await ctx.answerCallbackQuery();
-      await this.collectFunds(ctx);
+      ctx.reply('Cancelled.');
     });
   }
 
-  private setupMessageHandlers(): void {
-    this.bot.on('message:text', async ctx => {
-      const text = ctx.message.text;
-      const step = ctx.session.step;
+  // ==================== DASHBOARD ====================
+  private async showDashboard(ctx: BotContext): Promise<void> {
+    const masterBal = await this.solanaService.getBalanceSol(this.masterWallet.publicKey);
+    const walletCounts = this.walletManager.getWalletCount();
+    const totalBal = lamportsToSol(this.walletManager.getTotalBalance());
+    const holdings = this.pumpFunBuyer.getHoldingsState();
 
-      switch (step) {
-        case 'fund_amount':
-          await this.handleFundAmount(ctx, text);
-          break;
-        case 'buy_token':
-          await this.handleBuyToken(ctx, text);
-          break;
-        case 'buy_amount':
-          await this.handleBuyAmount(ctx, text);
-          break;
-        case 'buy_wallets':
-          await this.handleBuyWallets(ctx, text);
-          break;
-        default:
-          // Check if it's a token address
-          if (isValidPublicKey(text) && text.length > 30) {
-            await this.lookupToken(ctx, text);
-          }
-      }
-    });
+    let msg = `
+**PUMPFUN BOT**
+
+**Master Wallet**
+\`${shortenAddress(this.masterWallet.publicKey.toBase58(), 6)}\`
+Balance: ${masterBal.toFixed(4)} SOL
+
+**Sub Wallets**
+Total: ${walletCounts.total} | Funded: ${walletCounts.funded}
+Combined Balance: ${totalBal.toFixed(4)} SOL
+`;
+
+    if (holdings.token) {
+      msg += `
+**Current Holdings**
+Token: \`${shortenAddress(holdings.token, 6)}\`
+Wallets: ${holdings.totalWallets}
+Invested: ${holdings.totalSolSpent.toFixed(4)} SOL
+`;
+    }
+
+    const kb = new InlineKeyboard()
+      .text('Wallets', 'wallets').text('Fund', 'fund_menu').row()
+      .text('Buy', 'buy_menu').text('Sell', 'sell_menu').row()
+      .text('Token Tools', 'token_menu').text('Refresh', 'dashboard');
+
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
-  private async handleWalletsMenu(ctx: BotContext): Promise<void> {
-    const summary = this.walletManager.getWalletSummary();
-
-    const keyboard = new InlineKeyboard()
-      .text('➕ Generate 5', 'gen_wallets_5')
-      .text('➕ Generate 10', 'gen_wallets_10')
-      .row()
-      .text('➕ Generate 20', 'gen_wallets_20')
-      .text('🔄 Refresh', 'refresh_balances')
-      .row()
-      .text('📤 Export', 'export_wallets')
-      .text('🗑️ Delete All', 'delete_all_wallets');
-
-    await ctx.reply(summary, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
-  }
-
-  private async handleFundMenu(ctx: BotContext): Promise<void> {
-    const masterBalance = await this.solanaService.getBalanceSol(this.masterWallet.publicKey);
+  // ==================== WALLETS ====================
+  private async showWallets(ctx: BotContext): Promise<void> {
+    await this.walletManager.updateAllBalances();
+    const wallets = this.walletManager.getAllWallets();
     const counts = this.walletManager.getWalletCount();
 
-    const message = `
-💰 **Fund Wallets**
+    let msg = `**WALLETS** (${counts.total})\n\n`;
 
-Master Wallet: \`${shortenAddress(this.masterWallet.publicKey.toBase58())}\`
-Master Balance: ${masterBalance.toFixed(4)} SOL
+    if (wallets.length > 0) {
+      const display = wallets.slice(0, 10);
+      display.forEach((w, i) => {
+        const bal = lamportsToSol(w.info.balance).toFixed(4);
+        const status = w.info.funded ? '' : '';
+        msg += `${i + 1}. \`${shortenAddress(w.info.publicKey, 4)}\` ${bal} SOL ${status}\n`;
+      });
+      if (wallets.length > 10) {
+        msg += `\n_...and ${wallets.length - 10} more_`;
+      }
+    } else {
+      msg += '_No wallets yet. Generate some!_';
+    }
 
-Wallets to fund: ${counts.unfunded} unfunded
+    const kb = new InlineKeyboard()
+      .text('+5', 'gen_5').text('+10', 'gen_10').text('+20', 'gen_20').row()
+      .text('Refresh', 'refresh_bal').text('Export', 'export_keys').row()
+      .text('Delete All', 'delete_wallets').text('Back', 'dashboard');
 
-**Funding Modes:**
-🔒 **Stealth** - Uses intermediate wallets & delays to avoid Bubblemaps detection
-⚡ **Quick** - Direct transfers (faster but wallets may appear connected)
-    `;
-
-    const keyboard = new InlineKeyboard()
-      .text('🔒 Stealth Fund', 'fund_stealth')
-      .text('⚡ Quick Fund', 'fund_quick')
-      .row()
-      .text('💸 Collect Back', 'collect_funds');
-
-    await ctx.reply(message, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
-  }
-
-  private async handleBuyMenu(ctx: BotContext): Promise<void> {
-    const fundedCount = this.walletManager.getWalletCount().funded;
-
-    const message = `
-🛒 **Bundle Buy**
-
-Funded wallets available: ${fundedCount}
-
-Send a token mint address to look up info, or click below to start a bundle buy.
-
-**How it works:**
-1. Enter token mint address
-2. Enter total SOL amount
-3. Select number of wallets
-4. Confirm and execute bundle via Jito
-    `;
-
-    const keyboard = new InlineKeyboard()
-      .text('🚀 Start Bundle Buy', 'buy_start');
-
-    await ctx.reply(message, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
-  }
-
-  private async handleBalanceMenu(ctx: BotContext): Promise<void> {
-    await ctx.reply('🔄 Fetching balances...');
-    await this.refreshBalances(ctx);
-  }
-
-  private async handleHelp(ctx: BotContext): Promise<void> {
-    const helpMessage = `
-📖 **PumpFun Bundle Bot Help**
-
-**Wallet Management:**
-• Generate multiple wallets for bundle buying
-• Wallets are stored securely and persist between sessions
-• Export wallet keys anytime
-
-**Stealth Funding:**
-To avoid detection on Bubblemaps:
-• Uses intermediate wallets
-• Random delays between transfers
-• Randomized amounts
-• Multiple funding paths
-
-**Bundle Buying:**
-• Executes buys from multiple wallets in one Jito bundle
-• All transactions land in the same block
-• Higher success rate for sniping
-
-**Tips:**
-• Fund wallets before buying
-• Use stealth funding for better opsec
-• Higher Jito tips = faster landing
-
-**Commands:**
-\`/start\` - Main menu
-\`/wallets\` - Manage wallets
-\`/fund\` - Fund wallets
-\`/buy\` - Bundle buy
-\`/balance\` - Check balances
-    `;
-
-    await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
   private async generateWallets(ctx: BotContext, count: number): Promise<void> {
-    await ctx.reply(`⏳ Generating ${count} wallets...`);
-
     const wallets = this.walletManager.generateWallets(count);
-
-    const addresses = wallets
-      .slice(0, 5)
-      .map((w, i) => `${i + 1}. \`${w.info.publicKey}\``)
-      .join('\n');
-
-    let message = `✅ Generated ${count} new wallets!\n\n${addresses}`;
-    if (count > 5) {
-      message += `\n... and ${count - 5} more`;
-    }
-
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    const addresses = wallets.slice(0, 3).map(w => `\`${shortenAddress(w.info.publicKey, 6)}\``).join('\n');
+    await ctx.reply(`Generated ${count} wallets\n\n${addresses}${count > 3 ? '\n...' : ''}`, { parse_mode: 'Markdown' });
   }
 
-  private async handleFundAmount(ctx: BotContext, text: string): Promise<void> {
-    const amount = parseFloat(text);
-    if (isNaN(amount) || amount <= 0) {
-      await ctx.reply('❌ Invalid amount. Please enter a positive number.');
-      return;
-    }
+  private async exportWallets(ctx: BotContext): Promise<void> {
+    const data = this.walletManager.exportWallets();
+    await ctx.replyWithDocument({ source: Buffer.from(data), filename: 'wallets.json' });
+    await ctx.reply('Keep this file secure!');
+  }
 
-    ctx.session.data.fundAmount = amount;
-    ctx.session.step = 'fund_confirm';
+  private async refreshBalances(ctx: BotContext): Promise<void> {
+    await ctx.reply('Refreshing...');
+    await this.walletManager.updateAllBalances();
+    await this.showWallets(ctx);
+  }
 
-    const mode = ctx.session.data.fundMode as string;
-    const unfundedWallets = this.walletManager.getUnfundedWallets();
+  private async confirmDeleteWallets(ctx: BotContext): Promise<void> {
+    const kb = new InlineKeyboard()
+      .text('Yes, Delete All', 'confirm_delete')
+      .text('Cancel', 'wallets');
+    await ctx.reply('Delete ALL wallets? This cannot be undone!', { reply_markup: kb });
+  }
 
-    if (unfundedWallets.length === 0) {
-      await ctx.reply('❌ No unfunded wallets. Generate some wallets first!');
-      ctx.session.step = '';
-      return;
-    }
+  private async deleteAllWallets(ctx: BotContext): Promise<void> {
+    this.walletManager.deleteAllWallets();
+    await ctx.reply('All wallets deleted.');
+  }
 
-    const perWallet = mode === 'stealth' ? amount / unfundedWallets.length : amount;
+  // ==================== FUNDING ====================
+  private async showFundMenu(ctx: BotContext): Promise<void> {
+    const masterBal = await this.solanaService.getBalanceSol(this.masterWallet.publicKey);
+    const unfunded = this.walletManager.getWalletCount().unfunded;
 
-    const keyboard = new InlineKeyboard()
-      .text('✅ Confirm', 'confirm_fund')
-      .text('❌ Cancel', 'cancel_action');
+    const msg = `
+**FUND WALLETS**
 
-    await ctx.reply(
-      `📋 **Funding Summary**\n\n` +
-        `Mode: ${mode === 'stealth' ? '🔒 Stealth' : '⚡ Quick'}\n` +
-        `Wallets to fund: ${unfundedWallets.length}\n` +
-        `Amount per wallet: ~${perWallet.toFixed(4)} SOL\n` +
-        `Total: ${(perWallet * unfundedWallets.length).toFixed(4)} SOL\n\n` +
-        `Confirm to proceed?`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      }
-    );
+Master Balance: ${masterBal.toFixed(4)} SOL
+Unfunded Wallets: ${unfunded}
 
-    // Set up confirm handler
-    this.bot.callbackQuery('confirm_fund', async confirmCtx => {
-      await confirmCtx.answerCallbackQuery();
-      await this.executeFunding(confirmCtx);
-    });
+**CEX Style** - Mimics exchange withdrawals
+- Hot wallet pool
+- Random amounts & timing
+- Multiple hops
+- Anti-Bubblemaps
+
+**Quick** - Direct transfers (detectable)
+`;
+
+    const kb = new InlineKeyboard()
+      .text('CEX Style (Stealth)', 'fund_cex').row()
+      .text('Quick (Not Stealth)', 'fund_quick').row()
+      .text('Collect All Back', 'collect_all').row()
+      .text('Back', 'dashboard');
+
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
   private async executeFunding(ctx: BotContext): Promise<void> {
-    const mode = ctx.session.data.fundMode as string;
-    const amount = ctx.session.data.fundAmount as number;
-    const unfundedWallets = this.walletManager.getUnfundedWallets();
+    const mode = ctx.session.data.mode as string;
+    const amount = ctx.session.data.amount as number;
+    const unfunded = this.walletManager.getUnfundedWallets();
 
     ctx.session.step = '';
     ctx.session.data = {};
 
-    await ctx.reply('⏳ Starting funding process...');
+    if (unfunded.length === 0) {
+      await ctx.reply('No unfunded wallets!');
+      return;
+    }
+
+    await ctx.reply(`Starting ${mode === 'cex' ? 'CEX-style stealth' : 'quick'} funding...`);
 
     try {
-      if (mode === 'stealth') {
-        const result = await this.stealthFunder.fundWallets(
+      if (mode === 'cex') {
+        const result = await this.stealthFunder.fundWalletsCEXStyle(
           this.masterWallet,
-          unfundedWallets,
+          unfunded,
           amount,
-          async (current, total, wallet) => {
-            if (current % 3 === 0 || current === total) {
-              await ctx.reply(`📤 Progress: ${current}/${total} - ${shortenAddress(wallet)}`);
+          async (curr, total, wallet, eta) => {
+            if (curr % 3 === 0 || curr === total) {
+              await ctx.reply(`[${curr}/${total}] ${shortenAddress(wallet, 4)} (ETA: ${eta})`);
             }
           }
         );
-
-        await ctx.reply(
-          `✅ **Stealth Funding Complete**\n\n` +
-            `Funded: ${result.funded}/${unfundedWallets.length} wallets\n` +
-            `Transactions: ${result.signatures.length}`,
-          { parse_mode: 'Markdown' }
-        );
+        await ctx.reply(`Funded ${result.funded}/${unfunded.length} wallets`);
       } else {
         const perWallet = amount;
-        const result = await this.stealthFunder.quickFund(
-          this.masterWallet,
-          unfundedWallets,
-          perWallet
-        );
-
-        await ctx.reply(
-          `✅ **Quick Funding Complete**\n\n` +
-            `Funded: ${result.funded}/${unfundedWallets.length} wallets`,
-          { parse_mode: 'Markdown' }
-        );
+        const result = await this.stealthFunder.quickFund(this.masterWallet, unfunded, perWallet);
+        await ctx.reply(`Funded ${result.funded}/${unfunded.length} wallets`);
       }
-    } catch (error) {
-      await ctx.reply(`❌ Funding failed: ${error}`);
+    } catch (err) {
+      await ctx.reply(`Error: ${err}`);
     }
   }
 
-  private async handleBuyToken(ctx: BotContext, text: string): Promise<void> {
-    if (!isValidPublicKey(text)) {
-      await ctx.reply('❌ Invalid token address. Please enter a valid Solana address.');
+  private async collectFunds(ctx: BotContext): Promise<void> {
+    const funded = this.walletManager.getFundedWallets();
+    if (funded.length === 0) {
+      await ctx.reply('No funded wallets to collect from.');
       return;
     }
 
-    ctx.session.data.tokenMint = text;
-    ctx.session.step = 'buy_amount';
+    await ctx.reply(`Collecting from ${funded.length} wallets...`);
 
-    // Try to get token info
-    const tokenInfo = await this.pumpFunBuyer.getTokenInfo(new PublicKey(text));
-    if (tokenInfo) {
-      await ctx.reply(
-        `🪙 **Token Found**\n\n` +
-          `Name: ${tokenInfo.name}\n` +
-          `Symbol: ${tokenInfo.symbol}\n` +
-          `Mint: \`${text}\`\n\n` +
-          `Enter the total SOL amount to spend:`,
-        { parse_mode: 'Markdown' }
-      );
-    } else {
-      await ctx.reply('Enter the total SOL amount to spend across all wallets:');
-    }
+    const result = await this.stealthFunder.collectFunds(funded, this.masterWallet.publicKey);
+    await ctx.reply(`Collected ${lamportsToSol(result.totalAmount).toFixed(4)} SOL from ${result.collected} wallets`);
   }
 
-  private async handleBuyAmount(ctx: BotContext, text: string): Promise<void> {
-    const amount = parseFloat(text);
-    if (isNaN(amount) || amount <= 0) {
-      await ctx.reply('❌ Invalid amount. Please enter a positive number.');
-      return;
+  // ==================== BUY ====================
+  private async showBuyMenu(ctx: BotContext): Promise<void> {
+    const funded = this.walletManager.getWalletCount().funded;
+    const holdings = this.pumpFunBuyer.getHoldingsState();
+
+    let msg = `
+**BUY TOKENS**
+
+Funded Wallets: ${funded}
+`;
+
+    if (holdings.token) {
+      msg += `
+Current Holdings:
+Token: \`${shortenAddress(holdings.token, 6)}\`
+Invested: ${holdings.totalSolSpent.toFixed(4)} SOL
+`;
     }
 
-    ctx.session.data.buyAmount = amount;
-    ctx.session.step = 'buy_wallets';
+    msg += `
+Spread buy mode - buys from each wallet with delays to avoid magic node detection.
+`;
 
-    const fundedCount = this.walletManager.getWalletCount().funded;
+    const kb = new InlineKeyboard()
+      .text('Start Buy', 'buy_start').row()
+      .text('Back', 'dashboard');
 
-    const keyboard = new InlineKeyboard()
-      .text('5 wallets', 'buy_wallets_5')
-      .text('10 wallets', 'buy_wallets_10')
-      .row()
-      .text('15 wallets', 'buy_wallets_15')
-      .text('20 wallets', 'buy_wallets_20');
-
-    await ctx.reply(
-      `How many wallets to use? (${fundedCount} available)\n\n` +
-        `Total: ${amount} SOL\n` +
-        `Select or enter a custom number:`,
-      { reply_markup: keyboard }
-    );
-
-    // Handle quick selections
-    ['5', '10', '15', '20'].forEach(num => {
-      this.bot.callbackQuery(`buy_wallets_${num}`, async cbCtx => {
-        await cbCtx.answerCallbackQuery();
-        await this.handleBuyWallets(cbCtx, num);
-      });
-    });
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
-  private async handleBuyWallets(ctx: BotContext, text: string): Promise<void> {
-    const walletCount = parseInt(text);
-    const fundedCount = this.walletManager.getWalletCount().funded;
+  private async confirmBuy(ctx: BotContext): Promise<void> {
+    const token = ctx.session.data.token as string;
+    const amount = ctx.session.data.amount as number;
+    const wallets = ctx.session.data.walletCount as number;
+    const perWallet = amount / wallets;
 
-    if (isNaN(walletCount) || walletCount <= 0) {
-      await ctx.reply('❌ Invalid number. Please enter a positive integer.');
-      return;
-    }
+    const msg = `
+**CONFIRM BUY**
 
-    if (walletCount > fundedCount) {
-      await ctx.reply(`❌ Not enough funded wallets. You have ${fundedCount}, requested ${walletCount}.`);
-      return;
-    }
+Token: \`${token}\`
+Total: ${amount} SOL
+Wallets: ${wallets}
+Per Wallet: ~${perWallet.toFixed(4)} SOL
 
-    const tokenMint = ctx.session.data.tokenMint as string;
-    const totalAmount = ctx.session.data.buyAmount as number;
-    const perWallet = totalAmount / walletCount;
+Spread mode with 3-10s delays between buys.
+`;
 
-    ctx.session.step = '';
+    const kb = new InlineKeyboard()
+      .text('Execute Buy', 'confirm_buy')
+      .text('Cancel', 'cancel');
 
-    const keyboard = new InlineKeyboard()
-      .text('🚀 Execute Bundle', 'execute_bundle')
-      .text('❌ Cancel', 'cancel_action');
-
-    await ctx.reply(
-      `📋 **Bundle Buy Summary**\n\n` +
-        `Token: \`${tokenMint}\`\n` +
-        `Total: ${totalAmount} SOL\n` +
-        `Wallets: ${walletCount}\n` +
-        `Per wallet: ${perWallet.toFixed(4)} SOL\n` +
-        `Jito tip: 0.001 SOL\n\n` +
-        `Ready to execute?`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      }
-    );
-
-    ctx.session.data.walletCount = walletCount;
-
-    // Handle execute
-    this.bot.callbackQuery('execute_bundle', async execCtx => {
-      await execCtx.answerCallbackQuery();
-      await this.executeBundleBuy(execCtx);
-    });
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
-  private async executeBundleBuy(ctx: BotContext): Promise<void> {
-    const tokenMint = ctx.session.data.tokenMint as string;
-    const totalAmount = ctx.session.data.buyAmount as number;
+  private async executeBuy(ctx: BotContext): Promise<void> {
+    const token = ctx.session.data.token as string;
+    const amount = ctx.session.data.amount as number;
     const walletCount = ctx.session.data.walletCount as number;
 
     ctx.session.step = '';
     ctx.session.data = {};
 
-    await ctx.reply('⏳ Executing bundle buy...');
+    const wallets = this.walletManager.getRandomWallets(walletCount, true);
 
-    try {
-      const result = await this.pumpFunBuyer.executeBundleBuy({
-        mint: new PublicKey(tokenMint),
-        totalSolAmount: totalAmount,
-        walletCount,
-        slippageBps: 500,
-        jitoTipAmount: 0.001,
+    if (wallets.length < walletCount) {
+      await ctx.reply(`Not enough funded wallets. Have ${wallets.length}, need ${walletCount}`);
+      return;
+    }
+
+    await ctx.reply('Executing spread buy...');
+
+    const result = await this.pumpFunBuyer.executeSpreadBuy(
+      new PublicKey(token),
+      wallets,
+      amount,
+      500, // 5% slippage
+      3000,
+      10000,
+      async (curr, total, wallet, status) => {
+        if (curr % 3 === 0 || curr === total) {
+          await ctx.reply(`[${curr}/${total}] ${shortenAddress(wallet, 4)} - ${status}`);
+        }
+      }
+    );
+
+    await ctx.reply(`Buy complete! ${result.signatures?.length || 0} successful`);
+    await this.showSellMenu(ctx);
+  }
+
+  // ==================== SELL ====================
+  private async showSellMenu(ctx: BotContext): Promise<void> {
+    const holdings = this.pumpFunBuyer.getHoldingsState();
+
+    if (!holdings.token) {
+      await ctx.reply('No current holdings to sell.', {
+        reply_markup: new InlineKeyboard().text('Back', 'dashboard'),
       });
-
-      if (result.success) {
-        await ctx.reply(
-          `✅ **Bundle Buy Successful!**\n\n` +
-            `Bundle ID: \`${result.bundleId}\`\n` +
-            `Transactions: ${result.signatures?.length || walletCount}\n\n` +
-            `Check Solscan for details.`,
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        await ctx.reply(`❌ Bundle failed: ${result.error}`);
-      }
-    } catch (error) {
-      await ctx.reply(`❌ Error: ${error}`);
-    }
-  }
-
-  private async refreshBalances(ctx: BotContext): Promise<void> {
-    try {
-      const masterBalance = await this.solanaService.getBalanceSol(this.masterWallet.publicKey);
-      await this.walletManager.updateAllBalances();
-
-      const summary = this.walletManager.getWalletSummary();
-      await ctx.reply(
-        `💵 **Master Wallet:** ${masterBalance.toFixed(4)} SOL\n\n${summary}`,
-        { parse_mode: 'Markdown' }
-      );
-    } catch (error) {
-      await ctx.reply(`❌ Error refreshing balances: ${error}`);
-    }
-  }
-
-  private async exportWallets(ctx: BotContext): Promise<void> {
-    const wallets = this.walletManager.getAllWallets();
-    if (wallets.length === 0) {
-      await ctx.reply('No wallets to export.');
       return;
     }
 
-    const exportData = this.walletManager.exportWallets();
+    const msg = `
+**SELL**
 
-    // Send as document
-    await ctx.replyWithDocument({
-      source: Buffer.from(exportData),
-      filename: 'wallets.json',
-    });
+Token: \`${shortenAddress(holdings.token, 6)}\`
+Wallets Holding: ${holdings.totalWallets}
+Total Invested: ${holdings.totalSolSpent.toFixed(4)} SOL
+`;
 
-    await ctx.reply('⚠️ Keep this file secure! It contains private keys.');
+    const kb = new InlineKeyboard()
+      .text('SELL ALL', 'sell_all').row()
+      .text('Sell 50%', 'sell_50').text('Sell 25%', 'sell_25').row()
+      .text('Back', 'dashboard');
+
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
   }
 
-  private async collectFunds(ctx: BotContext): Promise<void> {
-    const fundedWallets = this.walletManager.getFundedWallets();
-    if (fundedWallets.length === 0) {
-      await ctx.reply('No funded wallets to collect from.');
+  private async executeSellAll(ctx: BotContext): Promise<void> {
+    const holdings = this.pumpFunBuyer.getHoldingsState();
+    if (!holdings.token) {
+      await ctx.reply('Nothing to sell');
       return;
     }
 
-    await ctx.reply(`⏳ Collecting funds from ${fundedWallets.length} wallets...`);
+    await ctx.reply('Selling all positions...');
 
-    try {
-      const result = await this.stealthFunder.collectFunds(
-        fundedWallets,
-        this.masterWallet.publicKey
-      );
+    const result = await this.pumpFunBuyer.sellAll(
+      new PublicKey(holdings.token),
+      1000,
+      async (curr, total, wallet, status) => {
+        if (curr % 3 === 0 || curr === total) {
+          await ctx.reply(`[${curr}/${total}] ${shortenAddress(wallet, 4)} - ${status}`);
+        }
+      }
+    );
 
-      await ctx.reply(
-        `✅ **Collection Complete**\n\n` +
-          `Collected from: ${result.collected} wallets\n` +
-          `Total: ${lamportsToSol(result.totalAmount).toFixed(4)} SOL`,
-        { parse_mode: 'Markdown' }
-      );
-
-      // Refresh balances
-      await this.walletManager.updateAllBalances();
-    } catch (error) {
-      await ctx.reply(`❌ Error collecting funds: ${error}`);
-    }
+    await ctx.reply(`Sold from ${result.walletsold} wallets\nReceived: ${result.totalSolReceived.toFixed(4)} SOL`);
   }
 
-  private async lookupToken(ctx: BotContext, mint: string): Promise<void> {
-    await ctx.reply('🔍 Looking up token...');
+  private async executeSellPercent(ctx: BotContext, percent: number): Promise<void> {
+    await ctx.reply(`Selling ${percent}% not yet implemented. Use Sell All.`);
+  }
 
-    try {
-      const tokenInfo = await this.pumpFunBuyer.getTokenInfo(new PublicKey(mint));
+  // ==================== TOKEN TOOLS ====================
+  private async showTokenMenu(ctx: BotContext): Promise<void> {
+    const msg = `
+**TOKEN TOOLS**
 
-      if (tokenInfo) {
-        const message = `
-🪙 **${tokenInfo.name}** (${tokenInfo.symbol})
+Burn LP - Burn LP tokens (after graduation)
+Edit Metadata - Change name/symbol/image
+Revoke Authorities - Remove mint/freeze auth
+`;
 
-Mint: \`${mint}\`
-Creator: \`${shortenAddress(tokenInfo.creator)}\`
-Bonding Curve: \`${shortenAddress(tokenInfo.bondingCurve)}\`
+    const kb = new InlineKeyboard()
+      .text('Burn LP', 'burn_lp').row()
+      .text('Edit Metadata', 'edit_meta').row()
+      .text('Revoke Mint Auth', 'revoke_mint').row()
+      .text('Back', 'dashboard');
 
-Status: ${tokenInfo.complete ? '✅ Completed' : '🟡 Active'}
-        `;
+    await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: kb });
+  }
 
-        const keyboard = new InlineKeyboard().text('🛒 Buy This Token', 'buy_start');
+  // ==================== STATUS ====================
+  private async showStatus(ctx: BotContext): Promise<void> {
+    await this.showDashboard(ctx);
+  }
 
-        await ctx.reply(message, {
-          parse_mode: 'Markdown',
-          reply_markup: keyboard,
-        });
+  // ==================== TEXT HANDLER ====================
+  private async handleText(ctx: BotContext): Promise<void> {
+    const text = ctx.message?.text || '';
+    const step = ctx.session.step;
 
-        ctx.session.data.tokenMint = mint;
-      } else {
-        await ctx.reply('❌ Token not found on PumpFun or may not be a PumpFun token.');
-      }
-    } catch (error) {
-      await ctx.reply(`❌ Error looking up token: ${error}`);
+    switch (step) {
+      case 'fund_amount':
+        const fundAmt = parseFloat(text);
+        if (isNaN(fundAmt) || fundAmt <= 0) {
+          await ctx.reply('Invalid amount');
+          return;
+        }
+        ctx.session.data.amount = fundAmt;
+        ctx.session.step = '';
+        await this.executeFunding(ctx);
+        break;
+
+      case 'buy_token':
+        if (!isValidPublicKey(text)) {
+          await ctx.reply('Invalid address');
+          return;
+        }
+        ctx.session.data.token = text;
+        ctx.session.step = 'buy_amount';
+
+        // Try to get token info
+        const info = await this.pumpFunBuyer.getTokenInfo(new PublicKey(text));
+        if (info) {
+          await ctx.reply(`Token: ${info.name} (${info.symbol})\n\nEnter total SOL amount:`);
+        } else {
+          await ctx.reply('Enter total SOL amount:');
+        }
+        break;
+
+      case 'buy_amount':
+        const buyAmt = parseFloat(text);
+        if (isNaN(buyAmt) || buyAmt <= 0) {
+          await ctx.reply('Invalid amount');
+          return;
+        }
+        ctx.session.data.amount = buyAmt;
+        ctx.session.step = '';
+
+        const funded = this.walletManager.getWalletCount().funded;
+        const kb = new InlineKeyboard()
+          .text('5', 'buy_wallets_5').text('10', 'buy_wallets_10').row()
+          .text('15', 'buy_wallets_15').text('20', 'buy_wallets_20').row()
+          .text('Cancel', 'cancel');
+        await ctx.reply(`Select wallet count (${funded} available):`, { reply_markup: kb });
+        break;
+
+      case 'burn_lp_mint':
+        if (!isValidPublicKey(text)) {
+          await ctx.reply('Invalid address');
+          return;
+        }
+        ctx.session.step = '';
+        await ctx.reply('Burning LP tokens...');
+        const burnResult = await this.tokenManager.burnLPTokens(this.masterWallet, new PublicKey(text));
+        await ctx.reply(burnResult.success ? `Burned! ${burnResult.signature}` : `Failed: ${burnResult.error}`);
+        break;
+
+      case 'revoke_mint_address':
+        if (!isValidPublicKey(text)) {
+          await ctx.reply('Invalid address');
+          return;
+        }
+        ctx.session.step = '';
+        await ctx.reply('Revoking mint authority...');
+        const revokeResult = await this.tokenManager.revokeMintAuthority(this.masterWallet, new PublicKey(text));
+        await ctx.reply(revokeResult.success ? `Revoked! ${revokeResult.signature}` : `Failed: ${revokeResult.error}`);
+        break;
+
+      default:
+        // Check if it's a token address
+        if (isValidPublicKey(text) && text.length > 30) {
+          const tokenInfo = await this.pumpFunBuyer.getTokenInfo(new PublicKey(text));
+          if (tokenInfo) {
+            const kb = new InlineKeyboard().text('Buy This Token', 'buy_start');
+            await ctx.reply(
+              `**${tokenInfo.name}** (${tokenInfo.symbol})\n\`${text}\``,
+              { parse_mode: 'Markdown', reply_markup: kb }
+            );
+            ctx.session.data.token = text;
+          } else {
+            await ctx.reply('Token not found on PumpFun');
+          }
+        }
     }
   }
 
   async start(): Promise<void> {
-    console.log('🤖 Starting Telegram bot...');
+    console.log('Bot starting...');
     await this.bot.start();
   }
 

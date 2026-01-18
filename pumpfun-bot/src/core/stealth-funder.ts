@@ -3,12 +3,11 @@ import {
   PublicKey,
   Transaction,
   SystemProgram,
-  TransactionInstruction,
-  ComputeBudgetProgram,
+  sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import { SolanaService } from '../services/solana';
 import { WalletManager } from './wallet-manager';
-import { StealthFundingConfig, FundingPath, BundleWallet } from '../types';
+import { StealthFundingConfig, BundleWallet } from '../types';
 import {
   sleep,
   randomDelay,
@@ -20,21 +19,59 @@ import {
 } from '../utils/helpers';
 
 /**
- * Stealth Funder - Funds wallets while avoiding Bubblemaps detection
+ * Advanced Stealth Funder - CEX-Style Funding to Avoid Bubblemaps Detection
  *
- * Techniques used:
- * 1. Intermediate wallets - Funds go through multiple hops
- * 2. Random delays - Transactions are spread over time
- * 3. Amount variance - Each wallet gets slightly different amounts
- * 4. Shuffled order - Wallets are funded in random order
- * 5. Multiple funding paths - Uses different routes for each wallet
- * 6. Time-based spreading - Funds are distributed across different time windows
+ * Anti-Detection Techniques:
+ *
+ * 1. CEX-STYLE WITHDRAWAL SIMULATION
+ *    - Creates a "hot wallet" pool that mimics exchange behavior
+ *    - Multiple hot wallets send to targets (like Binance/Coinbase)
+ *    - Random withdrawal amounts (exchanges never send exact amounts)
+ *    - Withdrawal fees deducted (mimics real CEX behavior)
+ *
+ * 2. TIME SPREADING
+ *    - Massive delays between transfers (minutes to hours)
+ *    - No two wallets funded within same time window
+ *    - Randomized scheduling
+ *
+ * 3. AMOUNT OBFUSCATION
+ *    - Wild variance in amounts (not just ±15%, but completely random)
+ *    - Some wallets get 0.05, others get 0.12, etc.
+ *    - No pattern detectable
+ *
+ * 4. MULTI-HOP CHAINS
+ *    - Master -> Hot Wallet Pool -> Mixer Wallets -> Target
+ *    - Each hop has different timing
+ *    - Mixer wallets are disposable
+ *
+ * 5. ANTI-MAGIC-NODES
+ *    - Bubblemaps "magic nodes" detect wallets that interact with same contract
+ *    - Solution: Spread BUYS over time too, not just funding
+ *    - Never buy from multiple wallets in same block
  */
+
+interface HotWallet {
+  keypair: Keypair;
+  balance: number;
+  lastUsed: number;
+}
+
+interface FundingSchedule {
+  target: PublicKey;
+  amount: number;
+  executeAt: number; // timestamp
+  hotWalletIndex: number;
+  mixerChain: Keypair[];
+}
+
 export class StealthFunder {
   private solanaService: SolanaService;
   private walletManager: WalletManager;
   private config: StealthFundingConfig;
-  private intermediateWallets: Keypair[] = [];
+
+  // CEX-style hot wallet pool
+  private hotWallets: HotWallet[] = [];
+  private mixerWallets: Keypair[] = [];
 
   constructor(
     solanaService: SolanaService,
@@ -44,275 +81,248 @@ export class StealthFunder {
     this.solanaService = solanaService;
     this.walletManager = walletManager;
     this.config = {
-      minDelayMs: config?.minDelayMs ?? 5000,
-      maxDelayMs: config?.maxDelayMs ?? 30000,
+      minDelayMs: config?.minDelayMs ?? 60000, // 1 minute minimum
+      maxDelayMs: config?.maxDelayMs ?? 300000, // 5 minutes max
       useIntermediateWallets: config?.useIntermediateWallets ?? true,
-      intermediateWalletCount: config?.intermediateWalletCount ?? 3,
+      intermediateWalletCount: config?.intermediateWalletCount ?? 5,
       randomizeAmounts: config?.randomizeAmounts ?? true,
-      amountVariancePercent: config?.amountVariancePercent ?? 15,
+      amountVariancePercent: config?.amountVariancePercent ?? 40, // High variance
     };
   }
 
   /**
-   * Generate intermediate wallets for stealth funding
+   * Initialize CEX-style hot wallet pool
+   * These wallets simulate exchange hot wallets
    */
-  private generateIntermediateWallets(): Keypair[] {
-    const wallets: Keypair[] = [];
-    for (let i = 0; i < this.config.intermediateWalletCount; i++) {
-      wallets.push(generateKeypair());
-    }
-    this.intermediateWallets = wallets;
-    console.log(`Generated ${wallets.length} intermediate wallets for stealth funding`);
-    return wallets;
-  }
+  async initializeHotWalletPool(masterWallet: Keypair, poolSize: number = 5): Promise<void> {
+    console.log(`\n🏦 Initializing CEX-style hot wallet pool (${poolSize} wallets)...`);
 
-  /**
-   * Create funding paths to avoid direct connections
-   *
-   * Strategy:
-   * - Master -> Intermediate1 -> Target (1 hop)
-   * - Master -> Intermediate1 -> Intermediate2 -> Target (2 hops)
-   * - Mix different paths to create noise
-   */
-  private createFundingPaths(
-    masterWallet: Keypair,
-    targetWallets: BundleWallet[],
-    amountPerWallet: number
-  ): FundingPath[] {
-    const paths: FundingPath[] = [];
-    const shuffledTargets = shuffleArray(targetWallets);
-    const intermediates = this.generateIntermediateWallets();
+    this.hotWallets = [];
 
-    shuffledTargets.forEach((target, index) => {
-      // Calculate amount with variance
-      const amount = this.config.randomizeAmounts
-        ? randomizeAmount(amountPerWallet, this.config.amountVariancePercent)
-        : amountPerWallet;
-
-      // Add delay between transactions
-      const delay = randomDelay(this.config.minDelayMs, this.config.maxDelayMs);
-
-      if (this.config.useIntermediateWallets && intermediates.length > 0) {
-        // Use different routing strategies
-        const strategy = index % 3;
-
-        switch (strategy) {
-          case 0:
-            // Single hop through one intermediate
-            const singleIntermediate = intermediates[index % intermediates.length];
-            paths.push({
-              from: masterWallet,
-              to: new PublicKey(target.info.publicKey),
-              amount,
-              intermediate: [singleIntermediate],
-              delay,
-            });
-            break;
-
-          case 1:
-            // Two hops through two intermediates
-            const firstIntermediate = intermediates[index % intermediates.length];
-            const secondIntermediate = intermediates[(index + 1) % intermediates.length];
-            paths.push({
-              from: masterWallet,
-              to: new PublicKey(target.info.publicKey),
-              amount,
-              intermediate: [firstIntermediate, secondIntermediate],
-              delay: delay * 1.5, // Longer delay for multi-hop
-            });
-            break;
-
-          case 2:
-            // Direct transfer with extra delay (some noise)
-            paths.push({
-              from: masterWallet,
-              to: new PublicKey(target.info.publicKey),
-              amount,
-              delay: delay * 2, // Extra long delay for direct transfers
-            });
-            break;
-        }
-      } else {
-        // Direct transfer
-        paths.push({
-          from: masterWallet,
-          to: new PublicKey(target.info.publicKey),
-          amount,
-          delay,
-        });
-      }
-    });
-
-    return paths;
-  }
-
-  /**
-   * Fund intermediate wallets first
-   */
-  private async fundIntermediates(
-    masterWallet: Keypair,
-    totalAmount: number
-  ): Promise<void> {
-    if (!this.config.useIntermediateWallets || this.intermediateWallets.length === 0) {
-      return;
+    for (let i = 0; i < poolSize; i++) {
+      const keypair = generateKeypair();
+      this.hotWallets.push({
+        keypair,
+        balance: 0,
+        lastUsed: 0,
+      });
     }
 
-    // Each intermediate gets a portion of the total plus buffer for fees
-    const amountPerIntermediate = (totalAmount / this.intermediateWallets.length) * 1.1;
+    // Fund hot wallets from master with random amounts and delays
+    const masterBalance = await this.solanaService.getBalanceSol(masterWallet.publicKey);
+    const amountPerHot = (masterBalance * 0.9) / poolSize; // Keep 10% buffer
 
-    console.log(`Funding ${this.intermediateWallets.length} intermediate wallets...`);
-
-    for (const intermediate of this.intermediateWallets) {
-      const delay = randomDelay(2000, 8000);
-      await sleep(delay);
+    for (let i = 0; i < this.hotWallets.length; i++) {
+      const hotWallet = this.hotWallets[i];
+      // Random amount for each hot wallet
+      const amount = randomizeAmount(amountPerHot, 30);
 
       try {
-        const sig = await this.solanaService.sendSol(
+        await this.solanaService.sendSol(
           masterWallet,
-          intermediate.publicKey,
-          amountPerIntermediate,
-          1000 // Priority fee
+          hotWallet.keypair.publicKey,
+          amount
         );
-        console.log(`Funded intermediate ${intermediate.publicKey.toBase58().slice(0, 8)}... : ${sig.slice(0, 8)}...`);
+        hotWallet.balance = solToLamports(amount);
+        console.log(`   Hot wallet ${i + 1}: ${hotWallet.keypair.publicKey.toBase58().slice(0, 8)}... funded with ${amount.toFixed(4)} SOL`);
       } catch (error) {
-        console.error(`Failed to fund intermediate: ${error}`);
-        throw error;
+        console.error(`   Failed to fund hot wallet ${i + 1}: ${error}`);
+      }
+
+      // Random delay between hot wallet funding
+      if (i < this.hotWallets.length - 1) {
+        const delay = randomDelay(5000, 15000);
+        await sleep(delay);
       }
     }
 
-    // Wait for confirmations
-    await sleep(3000);
+    console.log(`✅ Hot wallet pool ready\n`);
   }
 
   /**
-   * Execute a single funding path
+   * Generate mixer wallet chains for each target
+   * Creates disposable intermediate wallets
    */
-  private async executeFundingPath(path: FundingPath): Promise<string[]> {
+  private generateMixerChain(depth: number = 2): Keypair[] {
+    const chain: Keypair[] = [];
+    for (let i = 0; i < depth; i++) {
+      chain.push(generateKeypair());
+    }
+    return chain;
+  }
+
+  /**
+   * Create funding schedule with maximum randomization
+   */
+  private createFundingSchedule(
+    targetWallets: BundleWallet[],
+    totalAmount: number
+  ): FundingSchedule[] {
+    const schedules: FundingSchedule[] = [];
+    const shuffledTargets = shuffleArray(targetWallets);
+
+    // Calculate base amount but with WILD variance
+    const baseAmount = totalAmount / targetWallets.length;
+
+    let currentTime = Date.now();
+
+    for (let i = 0; i < shuffledTargets.length; i++) {
+      const target = shuffledTargets[i];
+
+      // Completely random amount within range
+      const minAmount = baseAmount * 0.5;
+      const maxAmount = baseAmount * 1.5;
+      const amount = minAmount + Math.random() * (maxAmount - minAmount);
+
+      // Simulate CEX "withdrawal fee" (makes amounts look more realistic)
+      const withdrawalFee = 0.0001 + Math.random() * 0.0005;
+      const finalAmount = amount - withdrawalFee;
+
+      // Random delay - much longer for stealth
+      const delay = randomDelay(this.config.minDelayMs, this.config.maxDelayMs);
+      currentTime += delay;
+
+      // Select hot wallet (round-robin with some randomness)
+      const hotWalletIndex = (i + Math.floor(Math.random() * 2)) % this.hotWallets.length;
+
+      // Generate mixer chain (1-3 hops)
+      const mixerDepth = 1 + Math.floor(Math.random() * 3);
+      const mixerChain = this.config.useIntermediateWallets
+        ? this.generateMixerChain(mixerDepth)
+        : [];
+
+      schedules.push({
+        target: new PublicKey(target.info.publicKey),
+        amount: finalAmount,
+        executeAt: currentTime,
+        hotWalletIndex,
+        mixerChain,
+      });
+    }
+
+    return schedules;
+  }
+
+  /**
+   * Execute a single funding through mixer chain
+   */
+  private async executeFundingChain(
+    schedule: FundingSchedule,
+    hotWallet: HotWallet
+  ): Promise<string[]> {
     const signatures: string[] = [];
+    const totalNeeded = schedule.amount + 0.001 * (schedule.mixerChain.length + 1);
 
-    if (path.intermediate && path.intermediate.length > 0) {
-      // Multi-hop transfer
-      let currentSender = path.from;
-      let currentAmount = path.amount + 0.001 * path.intermediate.length; // Add fees
-
-      for (let i = 0; i < path.intermediate.length; i++) {
-        const isLast = i === path.intermediate.length - 1;
-        const recipient = isLast ? path.to : path.intermediate[i + 1]?.publicKey;
-        const sendAmount = isLast ? path.amount : currentAmount - 0.001;
-
-        const intermediateKeypair = path.intermediate[i];
-
-        // First, fund intermediate from current sender
-        if (i === 0) {
-          const sig = await this.solanaService.sendSol(
-            currentSender,
-            intermediateKeypair.publicKey,
-            currentAmount,
-            1000
-          );
-          signatures.push(sig);
-          await sleep(randomDelay(1000, 3000));
-        }
-
-        // Then send from intermediate to next target
-        const sig = await this.solanaService.sendSol(
-          intermediateKeypair,
-          recipient!,
-          sendAmount,
-          1000
-        );
-        signatures.push(sig);
-        currentAmount = sendAmount;
-
-        if (!isLast) {
-          await sleep(randomDelay(2000, 5000));
-        }
-      }
-    } else {
-      // Direct transfer
+    if (schedule.mixerChain.length === 0) {
+      // Direct transfer from hot wallet (still looks like CEX withdrawal)
       const sig = await this.solanaService.sendSol(
-        path.from,
-        path.to,
-        path.amount,
-        1000
+        hotWallet.keypair,
+        schedule.target,
+        schedule.amount
       );
       signatures.push(sig);
+      return signatures;
     }
+
+    // Fund first mixer from hot wallet
+    let currentSender = hotWallet.keypair;
+    let currentAmount = totalNeeded;
+
+    for (let i = 0; i < schedule.mixerChain.length; i++) {
+      const mixer = schedule.mixerChain[i];
+      const isLast = i === schedule.mixerChain.length - 1;
+
+      // Send to mixer
+      const sig = await this.solanaService.sendSol(
+        currentSender,
+        mixer.publicKey,
+        currentAmount
+      );
+      signatures.push(sig);
+
+      // Small delay between hops
+      await sleep(randomDelay(2000, 8000));
+
+      currentSender = mixer;
+      currentAmount = currentAmount - 0.001; // Subtract fee
+    }
+
+    // Final transfer from last mixer to target
+    const finalSig = await this.solanaService.sendSol(
+      currentSender,
+      schedule.target,
+      schedule.amount
+    );
+    signatures.push(finalSig);
 
     return signatures;
   }
 
   /**
-   * Execute stealth funding for multiple wallets
+   * Main funding function - CEX-style stealth funding
    */
-  async fundWallets(
+  async fundWalletsCEXStyle(
     masterWallet: Keypair,
     targetWallets: BundleWallet[],
     totalAmount: number,
-    onProgress?: (current: number, total: number, wallet: string) => void
+    onProgress?: (current: number, total: number, wallet: string, eta: string) => void
   ): Promise<{ success: boolean; funded: number; signatures: string[] }> {
-    const amountPerWallet = totalAmount / targetWallets.length;
+    console.log(`\n🔒 Starting CEX-Style Stealth Funding`);
+    console.log(`   Target wallets: ${targetWallets.length}`);
+    console.log(`   Total amount: ${totalAmount} SOL`);
+    console.log(`   Mode: Maximum stealth (anti-Bubblemaps + anti-magic-nodes)\n`);
+
+    // Initialize hot wallet pool if not done
+    if (this.hotWallets.length === 0) {
+      await this.initializeHotWalletPool(masterWallet, 5);
+    }
+
+    // Create randomized funding schedule
+    const schedules = this.createFundingSchedule(targetWallets, totalAmount);
+
     const allSignatures: string[] = [];
     let fundedCount = 0;
 
-    console.log(`\n🔒 Starting stealth funding for ${targetWallets.length} wallets`);
-    console.log(`Amount per wallet: ~${amountPerWallet.toFixed(4)} SOL`);
-    console.log(`Using intermediate wallets: ${this.config.useIntermediateWallets}`);
-    console.log(`Random delays: ${this.config.minDelayMs}ms - ${this.config.maxDelayMs}ms\n`);
+    // Calculate total time needed
+    const totalTimeMs = schedules[schedules.length - 1].executeAt - Date.now();
+    console.log(`📅 Funding will complete in ~${Math.ceil(totalTimeMs / 60000)} minutes\n`);
 
-    // Check master balance
-    const masterBalance = await this.solanaService.getBalanceSol(masterWallet.publicKey);
-    const requiredAmount = totalAmount + 0.01 * targetWallets.length + 0.05; // Include fees buffer
+    for (let i = 0; i < schedules.length; i++) {
+      const schedule = schedules[i];
+      const hotWallet = this.hotWallets[schedule.hotWalletIndex];
+      const targetAddress = schedule.target.toBase58();
 
-    if (masterBalance < requiredAmount) {
-      throw new Error(
-        `Insufficient balance in master wallet. Have: ${masterBalance.toFixed(4)} SOL, Need: ${requiredAmount.toFixed(4)} SOL`
-      );
-    }
-
-    // Create funding paths
-    const paths = this.createFundingPaths(masterWallet, targetWallets, amountPerWallet);
-
-    // Fund intermediate wallets if using multi-hop
-    if (this.config.useIntermediateWallets) {
-      await this.fundIntermediates(masterWallet, totalAmount);
-    }
-
-    // Execute funding paths with delays
-    for (let i = 0; i < paths.length; i++) {
-      const path = paths[i];
-      const targetAddress = path.to.toBase58();
-
-      if (onProgress) {
-        onProgress(i + 1, paths.length, targetAddress);
+      // Wait until scheduled time
+      const waitTime = schedule.executeAt - Date.now();
+      if (waitTime > 0) {
+        const eta = new Date(schedule.executeAt).toLocaleTimeString();
+        if (onProgress) {
+          onProgress(i + 1, schedules.length, targetAddress, eta);
+        }
+        console.log(`⏳ [${i + 1}/${schedules.length}] Waiting ${Math.ceil(waitTime / 1000)}s for next transfer (ETA: ${eta})`);
+        await sleep(waitTime);
       }
 
       try {
-        console.log(`[${i + 1}/${paths.length}] Funding ${targetAddress.slice(0, 8)}... with ${path.amount.toFixed(4)} SOL`);
+        console.log(`📤 Funding ${targetAddress.slice(0, 8)}... with ${schedule.amount.toFixed(4)} SOL`);
+        console.log(`   Route: Hot${schedule.hotWalletIndex + 1} -> ${schedule.mixerChain.length} mixers -> Target`);
 
-        // Wait for the configured delay
-        if (i > 0) {
-          console.log(`Waiting ${(path.delay / 1000).toFixed(1)}s before next transaction...`);
-          await sleep(path.delay);
-        }
-
-        const signatures = await this.executeFundingPath(path);
+        const signatures = await this.executeFundingChain(schedule, hotWallet);
         allSignatures.push(...signatures);
 
         // Update wallet info
-        this.walletManager.markAsFunded(targetAddress, solToLamports(path.amount));
+        this.walletManager.markAsFunded(targetAddress, solToLamports(schedule.amount));
         fundedCount++;
 
-        console.log(`✅ Funded successfully`);
+        console.log(`   ✅ Done (${signatures.length} txs)\n`);
       } catch (error) {
-        console.error(`❌ Failed to fund ${targetAddress}: ${error}`);
-        // Continue with other wallets
+        console.error(`   ❌ Failed: ${error}\n`);
       }
     }
 
-    console.log(`\n🎉 Stealth funding complete!`);
-    console.log(`Funded: ${fundedCount}/${targetWallets.length} wallets`);
-    console.log(`Total transactions: ${allSignatures.length}`);
+    console.log(`\n🎉 CEX-Style Funding Complete!`);
+    console.log(`   Funded: ${fundedCount}/${targetWallets.length}`);
+    console.log(`   Total transactions: ${allSignatures.length}`);
 
     return {
       success: fundedCount > 0,
@@ -322,13 +332,15 @@ export class StealthFunder {
   }
 
   /**
-   * Quick fund - Direct funding without stealth (faster but detectable)
+   * Quick fund - for testing only (NOT stealth)
    */
   async quickFund(
     masterWallet: Keypair,
     targetWallets: BundleWallet[],
     amountPerWallet: number
   ): Promise<{ success: boolean; funded: number; signatures: string[] }> {
+    console.log(`\n⚡ Quick funding (NOT stealth!) - ${targetWallets.length} wallets`);
+
     const signatures: string[] = [];
     let funded = 0;
 
@@ -343,7 +355,7 @@ export class StealthFunder {
         this.walletManager.markAsFunded(target.info.publicKey, solToLamports(amountPerWallet));
         funded++;
       } catch (error) {
-        console.error(`Failed to fund ${target.info.publicKey}: ${error}`);
+        console.error(`Failed: ${target.info.publicKey}: ${error}`);
       }
     }
 
@@ -351,41 +363,51 @@ export class StealthFunder {
   }
 
   /**
-   * Collect remaining funds back to master wallet
+   * Collect all funds back to a wallet
    */
   async collectFunds(
     targetWallets: BundleWallet[],
     destinationWallet: PublicKey
-  ): Promise<{ collected: number; totalAmount: number }> {
+  ): Promise<{ collected: number; totalAmount: number; signatures: string[] }> {
+    console.log(`\n💸 Collecting funds from ${targetWallets.length} wallets...`);
+
     let collected = 0;
     let totalAmount = 0;
+    const signatures: string[] = [];
 
     for (const wallet of targetWallets) {
       try {
         const balance = await this.solanaService.getBalance(new PublicKey(wallet.info.publicKey));
-        const sendAmount = balance - 5000; // Leave some for rent
+        const sendAmount = balance - 5000; // Leave rent
 
         if (sendAmount > 0) {
-          await this.solanaService.sendSol(
+          const sig = await this.solanaService.sendSol(
             wallet.keypair,
             destinationWallet,
             lamportsToSol(sendAmount)
           );
+          signatures.push(sig);
           totalAmount += sendAmount;
           collected++;
+          console.log(`   ${wallet.info.publicKey.slice(0, 8)}...: ${lamportsToSol(sendAmount).toFixed(4)} SOL`);
         }
       } catch (error) {
-        console.error(`Failed to collect from ${wallet.info.publicKey}: ${error}`);
+        console.error(`   Failed ${wallet.info.publicKey.slice(0, 8)}...: ${error}`);
       }
     }
 
-    return { collected, totalAmount };
+    console.log(`\n✅ Collected ${lamportsToSol(totalAmount).toFixed(4)} SOL from ${collected} wallets`);
+
+    return { collected, totalAmount, signatures };
   }
 
   /**
-   * Get intermediate wallets (for debugging)
+   * Get hot wallet info for debugging
    */
-  getIntermediateWallets(): Keypair[] {
-    return this.intermediateWallets;
+  getHotWalletInfo(): { address: string; balance: number }[] {
+    return this.hotWallets.map(hw => ({
+      address: hw.keypair.publicKey.toBase58(),
+      balance: lamportsToSol(hw.balance),
+    }));
   }
 }

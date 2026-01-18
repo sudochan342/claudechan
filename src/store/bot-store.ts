@@ -206,15 +206,25 @@ export const useBotStore = create<BotState>()(
       },
 
       importWallets: async (privateKeys) => {
-        const { walletManager, addLog } = get();
+        const { walletManager, addLog, refreshBalances } = get();
         if (!walletManager) {
           addLog('error', 'Services not initialized');
           return 0;
         }
 
+        set({ isLoading: true, loadingMessage: 'Importing wallets...' });
+
         const imported = walletManager.importWallets(privateKeys);
         set({ wallets: walletManager.getAllWallets().map(w => w.info) });
         addLog('success', `Imported ${imported} wallets`);
+
+        // Auto-refresh balances after import
+        if (imported > 0) {
+          addLog('info', 'Fetching balances from blockchain...');
+          await refreshBalances();
+        }
+
+        set({ isLoading: false, loadingMessage: '' });
         return imported;
       },
 

@@ -8,6 +8,7 @@ export function Wallets() {
   const {
     wallets,
     isLoading,
+    loadingMessage,
     generateWallets,
     refreshBalances,
     deleteAllWallets,
@@ -76,6 +77,14 @@ export function Wallets() {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-green-400">Wallets</h2>
 
+      {/* Loading Indicator */}
+      {isLoading && (
+        <div className="bg-blue-900/30 border border-blue-600 rounded-lg p-3 flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+          <span className="text-blue-400">{loadingMessage || 'Processing...'}</span>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
         <div className="grid grid-cols-3 gap-4 text-center">
@@ -92,6 +101,11 @@ export function Wallets() {
             <p className="text-xl font-bold text-white">{lamportsToSol(totalBalance).toFixed(4)} SOL</p>
           </div>
         </div>
+        {wallets.length > 0 && totalBalance === 0 && !isLoading && (
+          <p className="text-yellow-400 text-sm text-center mt-3">
+            Click &quot;Refresh&quot; to fetch balances from blockchain
+          </p>
+        )}
       </div>
 
       {/* Action Buttons */}

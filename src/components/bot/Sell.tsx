@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useBotStore } from '@/store/bot-store';
-import { shortenAddress } from '@/lib/helpers';
+import { shortenAddress, lamportsToSol } from '@/lib/helpers';
 
 export function Sell() {
   const {
@@ -17,6 +17,47 @@ export function Sell() {
 
   const [progress, setProgress] = useState<{ current: number; total: number; status: string } | null>(null);
 
+  // Calculate current token price and PnL
+  const pnlData = useMemo(() => {
+    if (!currentTokenInfo || !holdings.token) {
+      return null;
+    }
+
+    const virtualSolReserves = currentTokenInfo.virtual_sol_reserves ?? 30_000_000_000;
+    const virtualTokenReserves = currentTokenInfo.virtual_token_reserves ?? 1_073_000_000_000_000;
+
+    // Current price per token in SOL (from bonding curve)
+    const currentPricePerToken = virtualSolReserves / virtualTokenReserves;
+
+    // Calculate PnL for each holding
+    const holdingsPnl = holdings.holdings.map(h => {
+      const tokenBalance = BigInt(h.tokenBalance);
+      const currentValue = Number(tokenBalance) * currentPricePerToken / 1e9; // Convert lamports to SOL
+      const pnl = currentValue - h.solSpent;
+      const pnlPercent = h.solSpent > 0 ? ((currentValue / h.solSpent) - 1) * 100 : 0;
+
+      return {
+        ...h,
+        currentValue,
+        pnl,
+        pnlPercent,
+      };
+    });
+
+    // Calculate totals
+    const totalCurrentValue = holdingsPnl.reduce((sum, h) => sum + h.currentValue, 0);
+    const totalPnl = totalCurrentValue - holdings.totalSolSpent;
+    const totalPnlPercent = holdings.totalSolSpent > 0 ? ((totalCurrentValue / holdings.totalSolSpent) - 1) * 100 : 0;
+
+    return {
+      currentPricePerToken,
+      holdingsPnl,
+      totalCurrentValue,
+      totalPnl,
+      totalPnlPercent,
+    };
+  }, [holdings, currentTokenInfo]);
+
   const handleSellAll = async () => {
     if (!holdings.token) return;
 
@@ -27,6 +68,11 @@ export function Sell() {
     });
 
     setProgress(null);
+  };
+
+  const formatPnl = (value: number, percent: number) => {
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(4)} SOL (${sign}${percent.toFixed(1)}%)`;
   };
 
   if (!holdings.token) {
@@ -50,7 +96,7 @@ export function Sell() {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-green-400">Sell</h2>
 
-      {/* Current Holdings */}
+      {/* Current Holdings Summary */}
       <div className="bg-gray-800 rounded-lg p-4 border border-green-600">
         <h3 className="text-lg font-semibold text-white mb-3">Current Holdings</h3>
         <div className="space-y-2">
@@ -75,25 +121,50 @@ export function Sell() {
         </div>
       </div>
 
-      {/* Holdings List */}
-      {holdings.holdings.length > 0 && (
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 max-h-64 overflow-y-auto">
+      {/* PnL Summary */}
+      {pnlData && (
+        <div className={`bg-gray-800 rounded-lg p-4 border ${pnlData.totalPnl >= 0 ? 'border-green-500' : 'border-red-500'}`}>
+          <h3 className="text-lg font-semibold text-white mb-3">P&L Summary</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Current Value:</span>
+              <span className="text-white font-bold">{pnlData.totalCurrentValue.toFixed(4)} SOL</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Unrealized P&L:</span>
+              <span className={`font-bold ${pnlData.totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatPnl(pnlData.totalPnl, pnlData.totalPnlPercent)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Holdings List with PnL */}
+      {pnlData && pnlData.holdingsPnl.length > 0 && (
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 max-h-72 overflow-y-auto">
           <h3 className="text-lg font-semibold text-white mb-3">Position Details</h3>
           <div className="space-y-2">
-            {holdings.holdings.map((h, index) => (
+            {pnlData.holdingsPnl.map((h, index) => (
               <div
                 key={h.walletAddress}
-                className="flex items-center justify-between bg-gray-700 rounded px-3 py-2"
+                className="bg-gray-700 rounded px-3 py-2"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-sm">{index + 1}.</span>
-                  <span className="text-green-400 font-mono text-sm">
-                    {shortenAddress(h.walletAddress, 4)}
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">{index + 1}.</span>
+                    <span className="text-green-400 font-mono text-sm">
+                      {shortenAddress(h.walletAddress, 4)}
+                    </span>
+                  </div>
+                  <span className={`font-mono text-sm font-bold ${h.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {h.pnl >= 0 ? '+' : ''}{h.pnlPercent.toFixed(1)}%
                   </span>
                 </div>
-                <span className="text-white font-mono text-sm">
-                  {h.solSpent.toFixed(4)} SOL
-                </span>
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>Invested: {h.solSpent.toFixed(4)} SOL</span>
+                  <span>Value: {h.currentValue.toFixed(4)} SOL</span>
+                </div>
               </div>
             ))}
           </div>

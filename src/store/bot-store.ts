@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { TabType, LogEntry, BotSettings, HoldingsState, PumpFunTokenInfo, WalletInfo } from '@/lib/types';
+import { TabType, LogEntry, BotSettings, HoldingsState, PumpFunTokenInfo, WalletInfo, BundleWallet } from '@/lib/types';
 import { SolanaService, getSolanaService } from '@/lib/solana-service';
 import { WalletManager } from '@/lib/wallet-manager';
 import { PumpFunBuyer } from '@/lib/pumpfun-buyer';
@@ -42,12 +42,12 @@ interface BotState {
   pumpFunBuyer: PumpFunBuyer | null;
 
   // Initialize services
-  initServices: () => void;
+  initServices: () => Promise<void>;
 
   // Wallet actions
-  generateWallets: (count: number) => Promise<void>;
+  generateWallets: (count: number) => Promise<BundleWallet[]>;
   refreshBalances: () => Promise<void>;
-  deleteAllWallets: () => void;
+  deleteAllWallets: () => Promise<void>;
   importWallets: (privateKeys: string[]) => Promise<number>;
   exportWallets: () => string;
 
@@ -144,10 +144,18 @@ export const useBotStore = create<BotState>()(
       walletManager: null,
       pumpFunBuyer: null,
 
-      initServices: () => {
-        const { settings } = get();
+      initServices: async () => {
+        const { settings, addLog } = get();
         const solanaService = getSolanaService(settings.rpcUrl);
         const walletManager = new WalletManager(solanaService);
+
+        // Initialize wallet manager (loads from database)
+        try {
+          await walletManager.initialize();
+        } catch (e) {
+          console.error('Failed to initialize wallet manager:', e);
+        }
+
         const pumpFunBuyer = new PumpFunBuyer(solanaService, walletManager);
 
         set({
@@ -157,7 +165,7 @@ export const useBotStore = create<BotState>()(
           wallets: walletManager.getAllWallets().map(w => w.info),
         });
 
-        get().addLog('info', 'Services initialized');
+        addLog('info', 'Services initialized');
       },
 
       // Wallet actions
@@ -165,17 +173,19 @@ export const useBotStore = create<BotState>()(
         const { walletManager, addLog } = get();
         if (!walletManager) {
           addLog('error', 'Services not initialized');
-          return;
+          return [];
         }
 
         set({ isLoading: true, loadingMessage: `Generating ${count} wallets...` });
 
         try {
-          walletManager.generateWallets(count);
+          const newWallets = await walletManager.generateWallets(count);
           set({ wallets: walletManager.getAllWallets().map(w => w.info) });
           addLog('success', `Generated ${count} new wallets`);
+          return newWallets;
         } catch (error) {
           addLog('error', `Failed to generate wallets: ${error}`);
+          return [];
         } finally {
           set({ isLoading: false, loadingMessage: '' });
         }
@@ -201,11 +211,11 @@ export const useBotStore = create<BotState>()(
         }
       },
 
-      deleteAllWallets: () => {
+      deleteAllWallets: async () => {
         const { walletManager, addLog } = get();
         if (!walletManager) return;
 
-        walletManager.deleteAllWallets();
+        await walletManager.deleteAllWallets();
         set({ wallets: [] });
         addLog('warning', 'All wallets deleted');
       },
@@ -219,7 +229,7 @@ export const useBotStore = create<BotState>()(
 
         set({ isLoading: true, loadingMessage: 'Importing wallets...' });
 
-        const imported = walletManager.importWallets(privateKeys);
+        const imported = await walletManager.importWallets(privateKeys);
         set({ wallets: walletManager.getAllWallets().map(w => w.info) });
         addLog('success', `Imported ${imported} wallets`);
 
@@ -286,19 +296,43 @@ export const useBotStore = create<BotState>()(
         set({ isLoading: true, loadingMessage: `Funding ${unfunded.length} wallets...` });
 
         let funded = 0;
+        const MAX_RETRIES = 3;
+
         for (const wallet of unfunded) {
-          try {
-            addLog('info', `Funding ${wallet.info.publicKey.slice(0, 8)}...`);
-            await solanaService.sendSol(
-              masterKeypair,
-              new PublicKey(wallet.info.publicKey),
-              amountPerWallet
-            );
-            walletManager.markAsFunded(wallet.info.publicKey, solToLamports(amountPerWallet));
-            funded++;
-          } catch (error) {
-            addLog('error', `Failed to fund ${wallet.info.publicKey.slice(0, 8)}...: ${error}`);
+          let success = false;
+          let lastError: unknown = null;
+
+          for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+            try {
+              set({ loadingMessage: `Funding wallet ${funded + 1}/${unfunded.length}${attempt > 1 ? ` (retry ${attempt})` : ''}...` });
+              addLog('info', `Funding ${wallet.info.publicKey.slice(0, 8)}...${attempt > 1 ? ` (attempt ${attempt})` : ''}`);
+
+              await solanaService.sendSol(
+                masterKeypair,
+                new PublicKey(wallet.info.publicKey),
+                amountPerWallet
+              );
+
+              await walletManager.markAsFunded(wallet.info.publicKey, solToLamports(amountPerWallet));
+              funded++;
+              success = true;
+            } catch (error) {
+              lastError = error;
+              if (attempt < MAX_RETRIES) {
+                // Wait before retry with exponential backoff
+                const waitMs = Math.pow(2, attempt) * 1000;
+                addLog('warning', `Retry ${attempt} failed, waiting ${waitMs / 1000}s...`);
+                await sleep(waitMs);
+              }
+            }
           }
+
+          if (!success) {
+            addLog('error', `Failed to fund ${wallet.info.publicKey.slice(0, 8)}... after ${MAX_RETRIES} attempts: ${lastError}`);
+          }
+
+          // Small delay between wallets to avoid rate limiting
+          await sleep(500);
         }
 
         await refreshBalances();
@@ -343,54 +377,84 @@ export const useBotStore = create<BotState>()(
           const txFee = 0.00005; // Estimated tx fee
           const amountPerIntermediate = (amountPerWallet + txFee) * walletsPerIntermediate + txFee;
 
-          // Step 2: Fund intermediate wallets from master
+          // Step 2: Fund intermediate wallets from master (with retry)
           addLog('info', 'Funding intermediate wallets from master...');
+          const MAX_RETRIES = 3;
+          const fundedIntermediates: number[] = [];
+
           for (let i = 0; i < intermediateWallets.length; i++) {
             const intermediate = intermediateWallets[i];
-            try {
-              await solanaService.sendSol(
-                masterKeypair,
-                intermediate.publicKey,
-                amountPerIntermediate
-              );
-              addLog('info', `Funded intermediate ${i + 1}/${intermediateCount}`);
-              if (onProgress) onProgress('Funding intermediates', i + 1, intermediateCount);
+            let success = false;
 
-              // Random delay between intermediate funding
-              await sleep(randomDelay(1000, 3000));
-            } catch (error) {
-              addLog('error', `Failed to fund intermediate ${i + 1}: ${error}`);
+            for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+              try {
+                await solanaService.sendSol(
+                  masterKeypair,
+                  intermediate.publicKey,
+                  amountPerIntermediate
+                );
+                addLog('info', `Funded intermediate ${i + 1}/${intermediateCount}`);
+                if (onProgress) onProgress('Funding intermediates', i + 1, intermediateCount);
+                fundedIntermediates.push(i);
+                success = true;
+              } catch (error) {
+                if (attempt < MAX_RETRIES) {
+                  const waitMs = Math.pow(2, attempt) * 1000;
+                  addLog('warning', `Intermediate ${i + 1} retry ${attempt}, waiting ${waitMs / 1000}s...`);
+                  await sleep(waitMs);
+                } else {
+                  addLog('error', `Failed to fund intermediate ${i + 1} after ${MAX_RETRIES} attempts: ${error}`);
+                }
+              }
             }
+
+            // Random delay between intermediate funding
+            await sleep(randomDelay(1000, 3000));
+          }
+
+          if (fundedIntermediates.length === 0) {
+            throw new Error('Failed to fund any intermediate wallets');
           }
 
           // Step 3: Wait a bit to break timing patterns
           addLog('info', 'Waiting to break timing patterns...');
           await sleep(randomDelay(3000, 6000));
 
-          // Step 4: Fund target wallets from intermediate wallets
+          // Step 4: Fund target wallets from intermediate wallets (with retry)
           let funded = 0;
           for (let i = 0; i < unfunded.length; i++) {
             const targetWallet = unfunded[i];
-            const intermediateIndex = i % intermediateCount;
+            // Only use intermediate wallets that were successfully funded
+            const intermediateIndex = fundedIntermediates[i % fundedIntermediates.length];
             const intermediate = intermediateWallets[intermediateIndex];
+            let success = false;
 
-            try {
-              set({ loadingMessage: `Stealth funding wallet ${i + 1}/${unfunded.length}...` });
-              await solanaService.sendSol(
-                intermediate,
-                new PublicKey(targetWallet.info.publicKey),
-                amountPerWallet
-              );
-              walletManager.markAsFunded(targetWallet.info.publicKey, solToLamports(amountPerWallet));
-              funded++;
-              addLog('info', `Funded ${targetWallet.info.publicKey.slice(0, 8)}... from intermediate ${intermediateIndex + 1}`);
-              if (onProgress) onProgress('Funding target wallets', i + 1, unfunded.length);
-
-              // Random delay between target wallet funding
-              await sleep(randomDelay(2000, 5000));
-            } catch (error) {
-              addLog('error', `Failed to fund ${targetWallet.info.publicKey.slice(0, 8)}...: ${error}`);
+            for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+              try {
+                set({ loadingMessage: `Stealth funding wallet ${i + 1}/${unfunded.length}${attempt > 1 ? ` (retry ${attempt})` : ''}...` });
+                await solanaService.sendSol(
+                  intermediate,
+                  new PublicKey(targetWallet.info.publicKey),
+                  amountPerWallet
+                );
+                await walletManager.markAsFunded(targetWallet.info.publicKey, solToLamports(amountPerWallet));
+                funded++;
+                addLog('info', `Funded ${targetWallet.info.publicKey.slice(0, 8)}... from intermediate ${intermediateIndex + 1}`);
+                if (onProgress) onProgress('Funding target wallets', i + 1, unfunded.length);
+                success = true;
+              } catch (error) {
+                if (attempt < MAX_RETRIES) {
+                  const waitMs = Math.pow(2, attempt) * 1000;
+                  addLog('warning', `Wallet ${targetWallet.info.publicKey.slice(0, 8)} retry ${attempt}, waiting ${waitMs / 1000}s...`);
+                  await sleep(waitMs);
+                } else {
+                  addLog('error', `Failed to fund ${targetWallet.info.publicKey.slice(0, 8)}... after ${MAX_RETRIES} attempts: ${error}`);
+                }
+              }
             }
+
+            // Random delay between target wallet funding
+            await sleep(randomDelay(2000, 5000));
           }
 
           // Step 5: Drain remaining dust from intermediate wallets back to master

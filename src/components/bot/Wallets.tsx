@@ -33,6 +33,10 @@ export function Wallets() {
   const [importText, setImportText] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<{ publicKey: string; privateKey: string } | null>(null);
+  const [customWalletCount, setCustomWalletCount] = useState('');
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [newlyGeneratedWallets, setNewlyGeneratedWallets] = useState<{ publicKey: string; privateKey: string }[]>([]);
+  const [showNewWalletsModal, setShowNewWalletsModal] = useState(false);
 
   const fundedCount = wallets.filter(w => w.funded).length;
   const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
@@ -122,6 +126,34 @@ export function Wallets() {
     addLog('info', `${label} copied to clipboard`);
   };
 
+  const handleGenerateWallets = async (count: number) => {
+    const newWallets = await generateWallets(count);
+    if (newWallets.length > 0) {
+      setNewlyGeneratedWallets(newWallets.map(w => ({
+        publicKey: w.info.publicKey,
+        privateKey: w.info.privateKey,
+      })));
+      setShowNewWalletsModal(true);
+    }
+  };
+
+  const handleCustomGenerate = async () => {
+    const count = parseInt(customWalletCount);
+    if (isNaN(count) || count < 1 || count > 100) {
+      addLog('error', 'Enter a number between 1 and 100');
+      return;
+    }
+    setShowGenerateModal(false);
+    setCustomWalletCount('');
+    await handleGenerateWallets(count);
+  };
+
+  const copyAllPrivateKeys = () => {
+    const keys = newlyGeneratedWallets.map(w => w.privateKey).join('\n');
+    navigator.clipboard.writeText(keys);
+    addLog('info', `${newlyGeneratedWallets.length} private keys copied to clipboard`);
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-green-400">Wallets</h2>
@@ -158,27 +190,34 @@ export function Wallets() {
       </div>
 
       {/* Action Buttons */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <button
-          onClick={() => generateWallets(5)}
+          onClick={() => handleGenerateWallets(5)}
           disabled={isLoading}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm font-semibold transition-colors"
         >
           +5
         </button>
         <button
-          onClick={() => generateWallets(10)}
+          onClick={() => handleGenerateWallets(10)}
           disabled={isLoading}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm font-semibold transition-colors"
         >
           +10
         </button>
         <button
-          onClick={() => generateWallets(20)}
+          onClick={() => handleGenerateWallets(20)}
           disabled={isLoading}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm font-semibold transition-colors"
         >
           +20
+        </button>
+        <button
+          onClick={() => setShowGenerateModal(true)}
+          disabled={isLoading}
+          className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm font-semibold transition-colors"
+        >
+          Custom
         </button>
       </div>
 
@@ -492,6 +531,105 @@ export function Wallets() {
             <div className="mt-6">
               <button
                 onClick={() => setSelectedWallet(null)}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Generate Modal */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-4">Generate Wallets</h3>
+            <p className="text-gray-300 mb-4">
+              How many wallets do you want to create?
+            </p>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={customWalletCount}
+              onChange={(e) => setCustomWalletCount(e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mb-4"
+              placeholder="Enter number (1-100)"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowGenerateModal(false);
+                  setCustomWalletCount('');
+                }}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCustomGenerate}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Newly Generated Wallets Modal */}
+      {showNewWalletsModal && newlyGeneratedWallets.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-green-400">
+                {newlyGeneratedWallets.length} New Wallets Created!
+              </h3>
+              <button
+                onClick={copyAllPrivateKeys}
+                className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+              >
+                Copy All Private Keys
+              </button>
+            </div>
+
+            <p className="text-red-400 text-sm mb-4">
+              Save these private keys securely! They won&apos;t be shown again unless you click on each wallet.
+            </p>
+
+            <div className="overflow-y-auto flex-1 space-y-3">
+              {newlyGeneratedWallets.map((wallet, index) => (
+                <div key={wallet.publicKey} className="bg-gray-700 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white font-semibold">Wallet {index + 1}</span>
+                    <button
+                      onClick={() => copyToClipboard(wallet.privateKey, `Wallet ${index + 1} private key`)}
+                      className="text-yellow-400 hover:text-yellow-300 text-sm"
+                    >
+                      Copy Key
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    <div>
+                      <span className="text-gray-400 text-xs">Public: </span>
+                      <code className="text-green-400 text-xs font-mono">{wallet.publicKey}</code>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 text-xs">Private: </span>
+                      <code className="text-yellow-400 text-xs font-mono break-all">{wallet.privateKey}</code>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <button
+                onClick={() => {
+                  setShowNewWalletsModal(false);
+                  setNewlyGeneratedWallets([]);
+                }}
                 className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
               >
                 Close

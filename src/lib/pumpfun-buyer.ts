@@ -476,6 +476,7 @@ export class PumpFunBuyer {
         tokenBalance: h.tokenBalance.toString(),
         solSpent: h.solSpent,
         buyTime: h.buyTime,
+        buyPrice: h.buyPrice,
       })),
     };
   }

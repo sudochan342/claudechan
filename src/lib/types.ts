@@ -36,6 +36,7 @@ export interface HoldingInfo {
   tokenBalance: string;
   solSpent: number;
   buyTime: number;
+  buyPrice: number; // Price per token in SOL (solSpent / tokenBalance)
 }
 
 export interface HoldingsState {

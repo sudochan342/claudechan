@@ -437,10 +437,12 @@ export class PumpFunBuyer {
 
   async getTokenInfo(mint: PublicKey): Promise<PumpFunTokenInfo | null> {
     try {
-      const response = await fetch(`https://frontend-api.pump.fun/coins/${mint.toBase58()}`);
+      // Use our API route to avoid CORS issues
+      const response = await fetch(`/api/token/${mint.toBase58()}`);
       if (!response.ok) return null;
       return await response.json() as PumpFunTokenInfo;
-    } catch {
+    } catch (error) {
+      console.error('Token lookup failed:', error);
       return null;
     }
   }

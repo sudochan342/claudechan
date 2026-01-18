@@ -123,8 +123,19 @@ export class SolanaService {
   }
 
   async sendVersionedTransaction(transaction: VersionedTransaction): Promise<string> {
+    // First simulate to get detailed error logs if it fails
+    const simulation = await this.connection.simulateTransaction(transaction, {
+      commitment: 'confirmed',
+    });
+
+    if (simulation.value.err) {
+      const logs = simulation.value.logs?.join('\n') || 'No logs available';
+      const errStr = JSON.stringify(simulation.value.err);
+      throw new Error(`Simulation failed. Error: ${errStr}. Logs:\n${logs}`);
+    }
+
     const signature = await this.connection.sendTransaction(transaction, {
-      skipPreflight: false,
+      skipPreflight: true, // Already simulated
       maxRetries: 3,
     });
 

@@ -15,7 +15,7 @@ import {
 } from '@solana/spl-token';
 import { SolanaService } from './solana-service';
 import { WalletManager } from './wallet-manager';
-import { BundleWallet, PumpFunTokenInfo, HoldingsState, HoldingInfo } from './types';
+import { BundleWallet, PumpFunTokenInfo, HoldingsState } from './types';
 import { solToLamports, lamportsToSol, sleep, randomDelay, shuffleArray } from './helpers';
 
 // PumpFun Program Constants
@@ -24,9 +24,29 @@ const PUMPFUN_GLOBAL = new PublicKey('4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxn
 const PUMPFUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM');
 const PUMPFUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
 
-// Discriminators
-const BUY_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
-const SELL_DISCRIMINATOR = Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]);
+// Discriminators as Uint8Array (browser compatible)
+const BUY_DISCRIMINATOR = new Uint8Array([102, 6, 61, 18, 1, 218, 235, 234]);
+const SELL_DISCRIMINATOR = new Uint8Array([51, 230, 133, 164, 1, 127, 131, 173]);
+
+// Helper function to write BigInt as little-endian bytes
+function writeBigUint64LE(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(8);
+  let v = value;
+  for (let i = 0; i < 8; i++) {
+    bytes[i] = Number(v & BigInt(0xff));
+    v = v >> BigInt(8);
+  }
+  return bytes;
+}
+
+// Helper to create instruction data (returns Buffer for TransactionInstruction compatibility)
+function createInstructionData(discriminator: Uint8Array, value1: bigint, value2: bigint): Buffer {
+  const data = new Uint8Array(24);
+  data.set(discriminator, 0);
+  data.set(writeBigUint64LE(value1), 8);
+  data.set(writeBigUint64LE(value2), 16);
+  return Buffer.from(data);
+}
 
 interface WalletHolding {
   wallet: BundleWallet;
@@ -104,10 +124,11 @@ export class PumpFunBuyer {
     solAmount: number,
     minTokensOut: bigint
   ): TransactionInstruction {
-    const data = Buffer.alloc(24);
-    BUY_DISCRIMINATOR.copy(data, 0);
-    data.writeBigUInt64LE(minTokensOut, 8);
-    data.writeBigUInt64LE(BigInt(solToLamports(solAmount)), 16);
+    const data = createInstructionData(
+      BUY_DISCRIMINATOR,
+      minTokensOut,
+      BigInt(solToLamports(solAmount))
+    );
 
     const keys = [
       { pubkey: PUMPFUN_GLOBAL, isSigner: false, isWritable: false },
@@ -140,10 +161,11 @@ export class PumpFunBuyer {
     tokenAmount: bigint,
     minSolOut: bigint
   ): TransactionInstruction {
-    const data = Buffer.alloc(24);
-    SELL_DISCRIMINATOR.copy(data, 0);
-    data.writeBigUInt64LE(tokenAmount, 8);
-    data.writeBigUInt64LE(minSolOut, 16);
+    const data = createInstructionData(
+      SELL_DISCRIMINATOR,
+      tokenAmount,
+      minSolOut
+    );
 
     const keys = [
       { pubkey: PUMPFUN_GLOBAL, isSigner: false, isWritable: false },

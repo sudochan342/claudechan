@@ -1,5 +1,4 @@
 import {
-  Keypair,
   PublicKey,
   TransactionInstruction,
   TransactionMessage,
@@ -7,20 +6,17 @@ import {
   SystemProgram,
   ComputeBudgetProgram,
   SYSVAR_RENT_PUBKEY,
-  Transaction,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
-  createCloseAccountInstruction,
-  createBurnInstruction,
 } from '@solana/spl-token';
-import { SolanaService } from '../services/solana';
+import { SolanaService } from './solana-service';
 import { WalletManager } from './wallet-manager';
-import { BundleWallet, BundleResult, PumpFunTokenInfo } from '../types';
-import { solToLamports, lamportsToSol, sleep, randomDelay, shuffleArray } from '../utils/helpers';
+import { BundleWallet, PumpFunTokenInfo, HoldingsState, HoldingInfo } from './types';
+import { solToLamports, lamportsToSol, sleep, randomDelay, shuffleArray } from './helpers';
 
 // PumpFun Program Constants
 const PUMPFUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -32,7 +28,6 @@ const PUMPFUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasj
 const BUY_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
 const SELL_DISCRIMINATOR = Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]);
 
-// Wallet holdings tracker
 interface WalletHolding {
   wallet: BundleWallet;
   tokenBalance: bigint;
@@ -44,22 +39,14 @@ interface WalletHolding {
 export class PumpFunBuyer {
   private solanaService: SolanaService;
   private walletManager: WalletManager;
-
-  // Track holdings for sell all
   private holdings: Map<string, WalletHolding> = new Map();
   private currentToken: PublicKey | null = null;
 
-  constructor(
-    solanaService: SolanaService,
-    walletManager: WalletManager
-  ) {
+  constructor(solanaService: SolanaService, walletManager: WalletManager) {
     this.solanaService = solanaService;
     this.walletManager = walletManager;
   }
 
-  /**
-   * Derive PumpFun bonding curve PDA
-   */
   deriveBondingCurve(mint: PublicKey): PublicKey {
     const [bondingCurve] = PublicKey.findProgramAddressSync(
       [Buffer.from('bonding-curve'), mint.toBuffer()],
@@ -68,9 +55,6 @@ export class PumpFunBuyer {
     return bondingCurve;
   }
 
-  /**
-   * Derive associated bonding curve token account
-   */
   deriveAssociatedBondingCurve(mint: PublicKey, bondingCurve: PublicKey): PublicKey {
     const [associatedBondingCurve] = PublicKey.findProgramAddressSync(
       [bondingCurve.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
@@ -79,9 +63,6 @@ export class PumpFunBuyer {
     return associatedBondingCurve;
   }
 
-  /**
-   * Calculate tokens out for a given SOL amount
-   */
   calculateTokensOut(
     solAmount: number,
     virtualSolReserves: number,
@@ -98,9 +79,6 @@ export class PumpFunBuyer {
     return minTokensOut;
   }
 
-  /**
-   * Calculate SOL out for a given token amount
-   */
   calculateSolOut(
     tokenAmount: bigint,
     virtualSolReserves: number,
@@ -117,9 +95,6 @@ export class PumpFunBuyer {
     return minSolOut;
   }
 
-  /**
-   * Create buy instruction
-   */
   createBuyInstruction(
     wallet: PublicKey,
     mint: PublicKey,
@@ -156,9 +131,6 @@ export class PumpFunBuyer {
     });
   }
 
-  /**
-   * Create sell instruction
-   */
   createSellInstruction(
     wallet: PublicKey,
     mint: PublicKey,
@@ -195,9 +167,6 @@ export class PumpFunBuyer {
     });
   }
 
-  /**
-   * Execute a single buy transaction
-   */
   async executeSingleBuy(
     wallet: BundleWallet,
     mint: PublicKey,
@@ -231,8 +200,8 @@ export class PumpFunBuyer {
     }
 
     // Calculate tokens
-    const virtualSolReserves = tokenInfo?.virtualSolReserves ?? 30 * 1e9;
-    const virtualTokenReserves = tokenInfo?.virtualTokenReserves ?? 1000000000 * 1e6;
+    const virtualSolReserves = tokenInfo?.virtual_sol_reserves ?? 30 * 1e9;
+    const virtualTokenReserves = tokenInfo?.virtual_token_reserves ?? 1000000000 * 1e6;
     const minTokensOut = this.calculateTokensOut(solAmount, virtualSolReserves, virtualTokenReserves, slippageBps);
 
     // Add buy instruction
@@ -272,14 +241,11 @@ export class PumpFunBuyer {
 
       return { success: true, signature, tokensReceived: minTokensOut };
     } catch (error) {
+      console.error('Buy failed:', error);
       return { success: false };
     }
   }
 
-  /**
-   * SPREAD BUY - Buy from multiple wallets spread across different blocks
-   * This avoids Bubblemaps "magic nodes" detection
-   */
   async executeSpreadBuy(
     mint: PublicKey,
     wallets: BundleWallet[],
@@ -287,14 +253,8 @@ export class PumpFunBuyer {
     slippageBps: number,
     minDelayMs: number = 3000,
     maxDelayMs: number = 10000,
-    onProgress?: (current: number, total: number, wallet: string, status: string) => void
-  ): Promise<BundleResult> {
-    console.log(`\n🎯 Starting SPREAD BUY (Anti-Magic-Nodes Mode)`);
-    console.log(`   Token: ${mint.toBase58()}`);
-    console.log(`   Wallets: ${wallets.length}`);
-    console.log(`   Total: ${totalSolAmount} SOL`);
-    console.log(`   Delay: ${minDelayMs}-${maxDelayMs}ms between buys\n`);
-
+    onProgress?: (current: number, total: number, wallet: string, status: string, signature?: string) => void
+  ): Promise<{ success: boolean; signatures: string[]; successful: number }> {
     this.currentToken = mint;
     const shuffledWallets = shuffleArray(wallets);
     const signatures: string[] = [];
@@ -309,7 +269,7 @@ export class PumpFunBuyer {
     for (let i = 0; i < shuffledWallets.length; i++) {
       const wallet = shuffledWallets[i];
 
-      // Randomize amount (±30%)
+      // Randomize amount (+-30%)
       const variance = (Math.random() - 0.5) * 0.6;
       const amount = baseAmount * (1 + variance);
 
@@ -317,59 +277,53 @@ export class PumpFunBuyer {
         onProgress(i + 1, shuffledWallets.length, wallet.info.publicKey, 'buying');
       }
 
-      console.log(`[${i + 1}/${shuffledWallets.length}] Buying with ${wallet.info.publicKey.slice(0, 8)}... (${amount.toFixed(4)} SOL)`);
-
       const result = await this.executeSingleBuy(wallet, mint, amount, slippageBps, tokenInfo || undefined);
 
       if (result.success && result.signature) {
         signatures.push(result.signature);
         successful++;
-        console.log(`   ✅ ${result.signature.slice(0, 8)}...`);
+        if (onProgress) {
+          onProgress(i + 1, shuffledWallets.length, wallet.info.publicKey, 'success', result.signature);
+        }
       } else {
-        console.log(`   ❌ Failed`);
+        if (onProgress) {
+          onProgress(i + 1, shuffledWallets.length, wallet.info.publicKey, 'failed');
+        }
       }
 
-      // Wait before next buy (spread across blocks)
+      // Wait before next buy
       if (i < shuffledWallets.length - 1) {
         const delay = randomDelay(minDelayMs, maxDelayMs);
-        console.log(`   ⏳ Waiting ${delay}ms...\n`);
         await sleep(delay);
       }
     }
 
-    console.log(`\n🎉 Spread Buy Complete: ${successful}/${wallets.length} successful`);
-
     return {
       success: successful > 0,
       signatures,
+      successful,
     };
   }
 
-  /**
-   * SELL ALL - Sell tokens from all wallets
-   */
   async sellAll(
     mint: PublicKey,
     slippageBps: number = 1000,
     onProgress?: (current: number, total: number, wallet: string, status: string) => void
-  ): Promise<{ success: boolean; totalSolReceived: number; walletsold: number }> {
-    console.log(`\n💸 Starting SELL ALL`);
-
+  ): Promise<{ success: boolean; totalSolReceived: number; walletsSold: number }> {
     const holdings = Array.from(this.holdings.values()).filter(
       h => h.tokenBalance > BigInt(0)
     );
 
     if (holdings.length === 0) {
-      console.log('No holdings to sell');
-      return { success: false, totalSolReceived: 0, walletsold: 0 };
+      return { success: false, totalSolReceived: 0, walletsSold: 0 };
     }
 
     let totalSolReceived = 0;
     let walletsSold = 0;
 
     const tokenInfo = await this.getTokenInfo(mint);
-    const virtualSolReserves = tokenInfo?.virtualSolReserves ?? 30 * 1e9;
-    const virtualTokenReserves = tokenInfo?.virtualTokenReserves ?? 1000000000 * 1e6;
+    const virtualSolReserves = tokenInfo?.virtual_sol_reserves ?? 30 * 1e9;
+    const virtualTokenReserves = tokenInfo?.virtual_token_reserves ?? 1000000000 * 1e6;
 
     for (let i = 0; i < holdings.length; i++) {
       const holding = holdings[i];
@@ -387,7 +341,6 @@ export class PumpFunBuyer {
         );
 
         if (actualBalance === 0) {
-          console.log(`[${i + 1}/${holdings.length}] ${wallet.info.publicKey.slice(0, 8)}... - No tokens`);
           continue;
         }
 
@@ -422,48 +375,37 @@ export class PumpFunBuyer {
         const transaction = new VersionedTransaction(messageV0);
         transaction.sign([wallet.keypair]);
 
-        const signature = await this.solanaService.sendVersionedTransaction(transaction);
+        await this.solanaService.sendVersionedTransaction(transaction);
 
         const solReceived = lamportsToSol(Number(minSolOut));
         totalSolReceived += solReceived;
         walletsSold++;
 
-        console.log(`[${i + 1}/${holdings.length}] ${wallet.info.publicKey.slice(0, 8)}... sold for ${solReceived.toFixed(4)} SOL ✅`);
-
         // Clear holding
         this.holdings.delete(wallet.info.publicKey);
+
+        if (onProgress) {
+          onProgress(i + 1, holdings.length, wallet.info.publicKey, 'sold');
+        }
 
         // Small delay between sells
         await sleep(randomDelay(1000, 3000));
       } catch (error) {
-        console.log(`[${i + 1}/${holdings.length}] ${wallet.info.publicKey.slice(0, 8)}... ❌ ${error}`);
+        console.error('Sell failed:', error);
+        if (onProgress) {
+          onProgress(i + 1, holdings.length, wallet.info.publicKey, 'failed');
+        }
       }
     }
-
-    console.log(`\n✅ Sold from ${walletsSold} wallets, received ${totalSolReceived.toFixed(4)} SOL`);
 
     return {
       success: walletsSold > 0,
       totalSolReceived,
-      walletsold: walletsSold,
+      walletsSold,
     };
   }
 
-  /**
-   * Get current holdings state
-   */
-  getHoldingsState(): {
-    token: string | null;
-    totalWallets: number;
-    totalTokens: string;
-    totalSolSpent: number;
-    avgBuyPrice: number;
-    holdings: Array<{
-      wallet: string;
-      tokens: string;
-      solSpent: number;
-    }>;
-  } {
+  getHoldingsState(): HoldingsState {
     const holdingsArray = Array.from(this.holdings.values());
 
     if (holdingsArray.length === 0) {
@@ -472,7 +414,6 @@ export class PumpFunBuyer {
         totalWallets: 0,
         totalTokens: '0',
         totalSolSpent: 0,
-        avgBuyPrice: 0,
         holdings: [],
       };
     }
@@ -485,18 +426,15 @@ export class PumpFunBuyer {
       totalWallets: holdingsArray.length,
       totalTokens: totalTokens.toString(),
       totalSolSpent,
-      avgBuyPrice: totalSolSpent / Number(totalTokens),
       holdings: holdingsArray.map(h => ({
-        wallet: h.wallet.info.publicKey,
-        tokens: h.tokenBalance.toString(),
+        walletAddress: h.wallet.info.publicKey,
+        tokenBalance: h.tokenBalance.toString(),
         solSpent: h.solSpent,
+        buyTime: h.buyTime,
       })),
     };
   }
 
-  /**
-   * Get token info from PumpFun API
-   */
   async getTokenInfo(mint: PublicKey): Promise<PumpFunTokenInfo | null> {
     try {
       const response = await fetch(`https://frontend-api.pump.fun/coins/${mint.toBase58()}`);
@@ -507,9 +445,6 @@ export class PumpFunBuyer {
     }
   }
 
-  /**
-   * Clear all holdings tracking
-   */
   clearHoldings(): void {
     this.holdings.clear();
     this.currentToken = null;

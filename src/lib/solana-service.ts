@@ -7,25 +7,19 @@ import {
   sendAndConfirmTransaction,
   TransactionInstruction,
   ComputeBudgetProgram,
-  LAMPORTS_PER_SOL,
   TransactionMessage,
   VersionedTransaction,
-  AddressLookupTableAccount,
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
-import { solToLamports, lamportsToSol, retryWithBackoff } from '../utils/helpers';
+import { solToLamports, lamportsToSol, retryWithBackoff } from './helpers';
 
 export class SolanaService {
   private connection: Connection;
-  private rpcUrl: string;
 
   constructor(rpcUrl: string) {
-    this.rpcUrl = rpcUrl;
     this.connection = new Connection(rpcUrl, {
       commitment: 'confirmed',
       confirmTransactionInitialTimeout: 60000,
@@ -36,9 +30,13 @@ export class SolanaService {
     return this.connection;
   }
 
-  /**
-   * Get SOL balance for a public key
-   */
+  updateRpcUrl(rpcUrl: string): void {
+    this.connection = new Connection(rpcUrl, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 60000,
+    });
+  }
+
   async getBalance(publicKey: PublicKey): Promise<number> {
     return retryWithBackoff(async () => {
       const balance = await this.connection.getBalance(publicKey);
@@ -46,17 +44,11 @@ export class SolanaService {
     });
   }
 
-  /**
-   * Get SOL balance in SOL (not lamports)
-   */
   async getBalanceSol(publicKey: PublicKey): Promise<number> {
     const balance = await this.getBalance(publicKey);
     return lamportsToSol(balance);
   }
 
-  /**
-   * Get token balance for a wallet
-   */
   async getTokenBalance(walletPubkey: PublicKey, mintPubkey: PublicKey): Promise<number> {
     try {
       const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
@@ -67,18 +59,12 @@ export class SolanaService {
     }
   }
 
-  /**
-   * Get latest blockhash
-   */
   async getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     return retryWithBackoff(async () => {
       return await this.connection.getLatestBlockhash('confirmed');
     });
   }
 
-  /**
-   * Send SOL from one wallet to another
-   */
   async sendSol(
     from: Keypair,
     to: PublicKey,
@@ -87,7 +73,6 @@ export class SolanaService {
   ): Promise<string> {
     const instructions: TransactionInstruction[] = [];
 
-    // Add priority fee if specified
     if (priorityFee) {
       instructions.push(
         ComputeBudgetProgram.setComputeUnitPrice({
@@ -96,7 +81,6 @@ export class SolanaService {
       );
     }
 
-    // Add transfer instruction
     instructions.push(
       SystemProgram.transfer({
         fromPubkey: from.publicKey,
@@ -105,7 +89,7 @@ export class SolanaService {
       })
     );
 
-    const { blockhash, lastValidBlockHeight } = await this.getLatestBlockhash();
+    const { blockhash } = await this.getLatestBlockhash();
 
     const transaction = new Transaction().add(...instructions);
     transaction.recentBlockhash = blockhash;
@@ -119,49 +103,10 @@ export class SolanaService {
     return signature;
   }
 
-  /**
-   * Create a transfer instruction
-   */
-  createTransferInstruction(from: PublicKey, to: PublicKey, amountSol: number): TransactionInstruction {
-    return SystemProgram.transfer({
-      fromPubkey: from,
-      toPubkey: to,
-      lamports: solToLamports(amountSol),
-    });
-  }
-
-  /**
-   * Get or create associated token account instruction
-   */
-  async getOrCreateAtaInstruction(
-    mint: PublicKey,
-    owner: PublicKey,
-    payer: PublicKey
-  ): Promise<{ ata: PublicKey; instruction?: TransactionInstruction }> {
-    const ata = await getAssociatedTokenAddress(mint, owner);
-
-    try {
-      await this.connection.getAccountInfo(ata);
-      return { ata };
-    } catch {
-      const instruction = createAssociatedTokenAccountInstruction(
-        payer,
-        ata,
-        owner,
-        mint
-      );
-      return { ata, instruction };
-    }
-  }
-
-  /**
-   * Build a versioned transaction
-   */
   async buildVersionedTransaction(
     instructions: TransactionInstruction[],
     payer: PublicKey,
-    signers: Keypair[],
-    addressLookupTableAccounts?: AddressLookupTableAccount[]
+    signers: Keypair[]
   ): Promise<VersionedTransaction> {
     const { blockhash } = await this.getLatestBlockhash();
 
@@ -169,7 +114,7 @@ export class SolanaService {
       payerKey: payer,
       recentBlockhash: blockhash,
       instructions,
-    }).compileToV0Message(addressLookupTableAccounts);
+    }).compileToV0Message();
 
     const transaction = new VersionedTransaction(messageV0);
     transaction.sign(signers);
@@ -177,21 +122,6 @@ export class SolanaService {
     return transaction;
   }
 
-  /**
-   * Simulate a transaction
-   */
-  async simulateTransaction(transaction: VersionedTransaction): Promise<boolean> {
-    try {
-      const simulation = await this.connection.simulateTransaction(transaction);
-      return simulation.value.err === null;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Send and confirm a versioned transaction
-   */
   async sendVersionedTransaction(transaction: VersionedTransaction): Promise<string> {
     const signature = await this.connection.sendTransaction(transaction, {
       skipPreflight: false,
@@ -202,24 +132,6 @@ export class SolanaService {
     return signature;
   }
 
-  /**
-   * Get minimum rent exemption
-   */
-  async getMinimumRentExemption(dataSize: number): Promise<number> {
-    return await this.connection.getMinimumBalanceForRentExemption(dataSize);
-  }
-
-  /**
-   * Check if account exists
-   */
-  async accountExists(publicKey: PublicKey): Promise<boolean> {
-    const accountInfo = await this.connection.getAccountInfo(publicKey);
-    return accountInfo !== null;
-  }
-
-  /**
-   * Get multiple account balances in parallel
-   */
   async getMultipleBalances(publicKeys: PublicKey[]): Promise<Map<string, number>> {
     const balances = new Map<string, number>();
 
@@ -233,4 +145,23 @@ export class SolanaService {
 
     return balances;
   }
+
+  async accountExists(publicKey: PublicKey): Promise<boolean> {
+    const accountInfo = await this.connection.getAccountInfo(publicKey);
+    return accountInfo !== null;
+  }
+}
+
+// Singleton instance
+let solanaServiceInstance: SolanaService | null = null;
+
+export function getSolanaService(rpcUrl?: string): SolanaService {
+  if (!solanaServiceInstance) {
+    solanaServiceInstance = new SolanaService(
+      rpcUrl || 'https://api.mainnet-beta.solana.com'
+    );
+  } else if (rpcUrl) {
+    solanaServiceInstance.updateRpcUrl(rpcUrl);
+  }
+  return solanaServiceInstance;
 }

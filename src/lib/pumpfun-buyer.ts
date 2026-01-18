@@ -5,6 +5,7 @@ import {
   VersionedTransaction,
   SystemProgram,
   ComputeBudgetProgram,
+  SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
@@ -191,26 +192,16 @@ export class PumpFunBuyer {
     solAmount: number,
     minTokensOut: bigint
   ): Promise<TransactionInstruction> {
-    // Get the creator address from the bonding curve account
-    const creator = await this.getCreatorFromBondingCurve(bondingCurve);
-    if (!creator) {
-      throw new Error('Failed to get creator from bonding curve - token may not exist or bonding curve not initialized');
-    }
-
-    // Derive new required PDAs with correct seeds
-    const creatorVault = this.deriveCreatorVault(creator);
-    const userVolumeAccumulator = this.deriveUserVolumeAccumulator(wallet);
-    const globalVolumeAccumulator = this.deriveGlobalVolumeAccumulator();
-    const feeConfig = this.deriveFeeConfig();
-
-    // New instruction data format with trackVolume option
-    const data = createBuyInstructionData(
+    // Use the original 12-account format (old IDL) which still works
+    // The new 16-account format with volume tracking causes IncorrectProgramId errors
+    // because those PDAs may not exist yet
+    const data = createInstructionData(
+      BUY_DISCRIMINATOR,
       minTokensOut,
-      BigInt(solToLamports(solAmount)),
-      null // trackVolume = None
+      BigInt(solToLamports(solAmount))
     );
 
-    // Updated account keys order per new IDL (16 accounts)
+    // Original 12-account buy instruction format
     const keys = [
       { pubkey: PUMPFUN_GLOBAL, isSigner: false, isWritable: false },           // 1. global
       { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },     // 2. fee_recipient
@@ -221,13 +212,9 @@ export class PumpFunBuyer {
       { pubkey: wallet, isSigner: true, isWritable: true },                     // 7. user (signer)
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },  // 8. system_program
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },         // 9. token_program
-      { pubkey: creatorVault, isSigner: false, isWritable: true },              // 10. creator_vault
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },       // 10. rent
       { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },  // 11. event_authority
       { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },       // 12. program
-      { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: false },  // 13. global_volume_accumulator
-      { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },     // 14. user_volume_accumulator
-      { pubkey: feeConfig, isSigner: false, isWritable: false },                // 15. fee_config
-      { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },      // 16. fee_program
     ];
 
     return new TransactionInstruction({

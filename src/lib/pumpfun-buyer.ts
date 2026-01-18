@@ -368,19 +368,37 @@ export class PumpFunBuyer {
         const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true, tokenProgram);
         const associatedUser = await getAssociatedTokenAddress(mint, userPubkey, false, tokenProgram);
 
+        // Get creator from bonding curve (required for new account format)
+        const creator = await this.getCreatorFromBondingCurve(bondingCurve);
+        if (!creator) {
+          console.error('Could not read creator from bonding curve');
+          if (onProgress) {
+            onProgress(i + 1, walletsWithTokens.length, wallet.info.publicKey, 'failed: Could not read creator');
+          }
+          continue;
+        }
+
         const tokenAmount = BigInt(balance);
         // For sell, minSolOut is what we expect to receive (apply slippage down)
         const minSolOut = BigInt(1); // Accept any SOL to ensure sell goes through
 
-        // Sell instruction data: 8 discriminator + 8 tokenAmount + 8 minSolOut = 24 bytes
-        const data = new Uint8Array(24);
+        // Sell instruction data: 8 discriminator + 8 tokenAmount + 8 minSolOut + 1 trackVolume = 25 bytes
+        const data = new Uint8Array(25);
         data.set(SELL_DISCRIMINATOR, 0);
         data.set(writeU64LE(tokenAmount), 8);
         data.set(writeU64LE(minSolOut), 16);
+        data[24] = 0; // track_volume = false
 
-        // 12-account sell instruction (sell uses simpler format than buy)
+        // 16-account sell instruction (January 2025 format - same as buy)
+        const creatorVault = deriveCreatorVault(creator);
+        const eventAuth = deriveEventAuthority();
+        const globalVol = deriveGlobalVolumeAccumulator();
+        const userVol = deriveUserVolumeAccumulator(userPubkey);
+        const feeConfig = deriveFeeConfig();
+        const globalPda = deriveGlobal();
+
         const keys = [
-          { pubkey: deriveGlobal(), isSigner: false, isWritable: false },
+          { pubkey: globalPda, isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
           { pubkey: mint, isSigner: false, isWritable: false },
           { pubkey: bondingCurve, isSigner: false, isWritable: true },
@@ -388,10 +406,14 @@ export class PumpFunBuyer {
           { pubkey: associatedUser, isSigner: false, isWritable: true },
           { pubkey: userPubkey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
           { pubkey: tokenProgram, isSigner: false, isWritable: false },
-          { pubkey: deriveEventAuthority(), isSigner: false, isWritable: false },
+          { pubkey: creatorVault, isSigner: false, isWritable: true },
+          { pubkey: eventAuth, isSigner: false, isWritable: false },
           { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: globalVol, isSigner: false, isWritable: false },
+          { pubkey: userVol, isSigner: false, isWritable: true },
+          { pubkey: feeConfig, isSigner: false, isWritable: false },
+          { pubkey: FEE_PROGRAM_ID, isSigner: false, isWritable: false },
         ];
 
         console.log(`Selling ${balance} tokens from ${wallet.info.publicKey.slice(0, 8)}...`);

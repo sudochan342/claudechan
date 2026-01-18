@@ -5,7 +5,6 @@ import {
   VersionedTransaction,
   SystemProgram,
   ComputeBudgetProgram,
-  SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
@@ -18,12 +17,14 @@ import { WalletManager } from './wallet-manager';
 import { BundleWallet, PumpFunTokenInfo, HoldingsState } from './types';
 import { solToLamports, lamportsToSol, sleep, randomDelay, shuffleArray } from './helpers';
 
-// PumpFun Program Constants
+// PumpFun Program Constants (Updated for new IDL - January 2025)
 const PUMPFUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
 const PUMPFUN_GLOBAL = new PublicKey('4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf');
-// Updated fee recipient (changed from old address)
-const PUMPFUN_FEE_RECIPIENT = new PublicKey('62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV');
+const PUMPFUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM');
 const PUMPFUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
+// New accounts required by updated PumpFun IDL
+const PUMPFUN_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
+const PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR = new PublicKey('6K1YZhFxWjJBp5LLEH4S7Z7D7v3xVJrvvVaGgxL1sGbH');
 
 // Discriminators as Uint8Array (browser compatible)
 const BUY_DISCRIMINATOR = new Uint8Array([102, 6, 61, 18, 1, 218, 235, 234]);
@@ -41,11 +42,23 @@ function writeBigUint64LE(value: bigint): Uint8Array {
 }
 
 // Helper to create instruction data (returns Buffer for TransactionInstruction compatibility)
+// Old format: 8 discriminator + 8 value1 + 8 value2 = 24 bytes
 function createInstructionData(discriminator: Uint8Array, value1: bigint, value2: bigint): Buffer {
   const data = new Uint8Array(24);
   data.set(discriminator, 0);
   data.set(writeBigUint64LE(value1), 8);
   data.set(writeBigUint64LE(value2), 16);
+  return Buffer.from(data);
+}
+
+// New buy format: 8 discriminator + 8 amount + 8 maxSolCost + 1 trackVolume = 25 bytes
+function createBuyInstructionData(amount: bigint, maxSolCost: bigint, trackVolume: boolean | null = null): Buffer {
+  const data = new Uint8Array(25);
+  data.set(BUY_DISCRIMINATOR, 0);
+  data.set(writeBigUint64LE(amount), 8);
+  data.set(writeBigUint64LE(maxSolCost), 16);
+  // OptionBool: 0 = None, 1 = Some(false), 2 = Some(true)
+  data[24] = trackVolume === null ? 0 : (trackVolume ? 2 : 1);
   return Buffer.from(data);
 }
 
@@ -82,6 +95,31 @@ export class PumpFunBuyer {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
     return associatedBondingCurve;
+  }
+
+  // New PDA derivations for updated IDL
+  deriveCreatorVault(mint: PublicKey): PublicKey {
+    const [creatorVault] = PublicKey.findProgramAddressSync(
+      [Buffer.from('creator-vault'), mint.toBuffer()],
+      PUMPFUN_PROGRAM_ID
+    );
+    return creatorVault;
+  }
+
+  deriveUserVolumeAccumulator(user: PublicKey): PublicKey {
+    const [userVolumeAccumulator] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user-volume'), user.toBuffer()],
+      PUMPFUN_PROGRAM_ID
+    );
+    return userVolumeAccumulator;
+  }
+
+  deriveFeeConfig(): PublicKey {
+    const [feeConfig] = PublicKey.findProgramAddressSync(
+      [Buffer.from('fee-config')],
+      PUMPFUN_FEE_PROGRAM
+    );
+    return feeConfig;
   }
 
   calculateTokensOut(
@@ -125,25 +163,36 @@ export class PumpFunBuyer {
     solAmount: number,
     minTokensOut: bigint
   ): TransactionInstruction {
-    const data = createInstructionData(
-      BUY_DISCRIMINATOR,
+    // Derive new required PDAs
+    const creatorVault = this.deriveCreatorVault(mint);
+    const userVolumeAccumulator = this.deriveUserVolumeAccumulator(wallet);
+    const feeConfig = this.deriveFeeConfig();
+
+    // New instruction data format with trackVolume option
+    const data = createBuyInstructionData(
       minTokensOut,
-      BigInt(solToLamports(solAmount))
+      BigInt(solToLamports(solAmount)),
+      null // trackVolume = None
     );
 
+    // Updated account keys order per new IDL (16 accounts)
     const keys = [
-      { pubkey: PUMPFUN_GLOBAL, isSigner: false, isWritable: false },
-      { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: bondingCurve, isSigner: false, isWritable: true },
-      { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },
-      { pubkey: associatedUser, isSigner: false, isWritable: true },
-      { pubkey: wallet, isSigner: true, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-      { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
-      { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: PUMPFUN_GLOBAL, isSigner: false, isWritable: false },           // 1. global
+      { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },     // 2. fee_recipient
+      { pubkey: mint, isSigner: false, isWritable: false },                     // 3. mint
+      { pubkey: bondingCurve, isSigner: false, isWritable: true },              // 4. bonding_curve
+      { pubkey: associatedBondingCurve, isSigner: false, isWritable: true },    // 5. associated_bonding_curve
+      { pubkey: associatedUser, isSigner: false, isWritable: true },            // 6. associated_user
+      { pubkey: wallet, isSigner: true, isWritable: true },                     // 7. user (signer)
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },  // 8. system_program
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },         // 9. token_program
+      { pubkey: creatorVault, isSigner: false, isWritable: true },              // 10. creator_vault
+      { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },  // 11. event_authority
+      { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },       // 12. program
+      { pubkey: PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR, isSigner: false, isWritable: false }, // 13. global_volume_accumulator
+      { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },     // 14. user_volume_accumulator
+      { pubkey: feeConfig, isSigner: false, isWritable: false },                // 15. fee_config
+      { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },      // 16. fee_program
     ];
 
     return new TransactionInstruction({

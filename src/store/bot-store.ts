@@ -7,7 +7,7 @@ import { TabType, LogEntry, BotSettings, HoldingsState, PumpFunTokenInfo, Wallet
 import { SolanaService, getSolanaService } from '@/lib/solana-service';
 import { WalletManager } from '@/lib/wallet-manager';
 import { PumpFunBuyer } from '@/lib/pumpfun-buyer';
-import { generateId, keypairFromBase58, lamportsToSol, solToLamports } from '@/lib/helpers';
+import { generateId, keypairFromBase58, lamportsToSol, solToLamports, generateKeypair, sleep, randomDelay } from '@/lib/helpers';
 
 interface BotState {
   // UI State
@@ -57,6 +57,11 @@ interface BotState {
 
   // Funding actions
   quickFundWallets: (amountPerWallet: number) => Promise<void>;
+  stealthFundWallets: (
+    amountPerWallet: number,
+    intermediateCount?: number,
+    onProgress?: (step: string, current: number, total: number) => void
+  ) => Promise<void>;
   collectAllFunds: () => Promise<void>;
 
   // Buy/Sell actions
@@ -300,6 +305,127 @@ export const useBotStore = create<BotState>()(
         await get().refreshMasterBalance();
         addLog('success', `Funded ${funded}/${unfunded.length} wallets`);
         set({ isLoading: false, loadingMessage: '' });
+      },
+
+      stealthFundWallets: async (amountPerWallet, intermediateCount = 3, onProgress) => {
+        const { solanaService, walletManager, getMasterKeypair, addLog, refreshBalances } = get();
+        if (!solanaService || !walletManager) {
+          addLog('error', 'Services not initialized');
+          return;
+        }
+
+        const masterKeypair = getMasterKeypair();
+        if (!masterKeypair) {
+          addLog('error', 'Master wallet not configured');
+          return;
+        }
+
+        const unfunded = walletManager.getUnfundedWallets();
+        if (unfunded.length === 0) {
+          addLog('warning', 'No unfunded wallets');
+          return;
+        }
+
+        set({ isLoading: true, loadingMessage: 'Stealth funding in progress...' });
+        addLog('info', `Starting stealth funding for ${unfunded.length} wallets via ${intermediateCount} intermediate wallets`);
+
+        try {
+          // Step 1: Create intermediate wallets
+          const intermediateWallets: Keypair[] = [];
+          for (let i = 0; i < intermediateCount; i++) {
+            intermediateWallets.push(generateKeypair());
+          }
+          addLog('info', `Created ${intermediateCount} intermediate wallets`);
+          if (onProgress) onProgress('Creating intermediate wallets', intermediateCount, intermediateCount);
+
+          // Calculate how much each intermediate needs (split unfunded wallets among them)
+          const walletsPerIntermediate = Math.ceil(unfunded.length / intermediateCount);
+          const txFee = 0.00005; // Estimated tx fee
+          const amountPerIntermediate = (amountPerWallet + txFee) * walletsPerIntermediate + txFee;
+
+          // Step 2: Fund intermediate wallets from master
+          addLog('info', 'Funding intermediate wallets from master...');
+          for (let i = 0; i < intermediateWallets.length; i++) {
+            const intermediate = intermediateWallets[i];
+            try {
+              await solanaService.sendSol(
+                masterKeypair,
+                intermediate.publicKey,
+                amountPerIntermediate
+              );
+              addLog('info', `Funded intermediate ${i + 1}/${intermediateCount}`);
+              if (onProgress) onProgress('Funding intermediates', i + 1, intermediateCount);
+
+              // Random delay between intermediate funding
+              await sleep(randomDelay(1000, 3000));
+            } catch (error) {
+              addLog('error', `Failed to fund intermediate ${i + 1}: ${error}`);
+            }
+          }
+
+          // Step 3: Wait a bit to break timing patterns
+          addLog('info', 'Waiting to break timing patterns...');
+          await sleep(randomDelay(3000, 6000));
+
+          // Step 4: Fund target wallets from intermediate wallets
+          let funded = 0;
+          for (let i = 0; i < unfunded.length; i++) {
+            const targetWallet = unfunded[i];
+            const intermediateIndex = i % intermediateCount;
+            const intermediate = intermediateWallets[intermediateIndex];
+
+            try {
+              set({ loadingMessage: `Stealth funding wallet ${i + 1}/${unfunded.length}...` });
+              await solanaService.sendSol(
+                intermediate,
+                new PublicKey(targetWallet.info.publicKey),
+                amountPerWallet
+              );
+              walletManager.markAsFunded(targetWallet.info.publicKey, solToLamports(amountPerWallet));
+              funded++;
+              addLog('info', `Funded ${targetWallet.info.publicKey.slice(0, 8)}... from intermediate ${intermediateIndex + 1}`);
+              if (onProgress) onProgress('Funding target wallets', i + 1, unfunded.length);
+
+              // Random delay between target wallet funding
+              await sleep(randomDelay(2000, 5000));
+            } catch (error) {
+              addLog('error', `Failed to fund ${targetWallet.info.publicKey.slice(0, 8)}...: ${error}`);
+            }
+          }
+
+          // Step 5: Drain remaining dust from intermediate wallets back to master
+          addLog('info', 'Cleaning up intermediate wallets...');
+          let totalDustRecovered = 0;
+          for (let i = 0; i < intermediateWallets.length; i++) {
+            const intermediate = intermediateWallets[i];
+            try {
+              const balance = await solanaService.getBalance(intermediate.publicKey);
+              const dustAmount = balance - 5000; // Leave minimum for rent
+              if (dustAmount > 0) {
+                await solanaService.sendSol(
+                  intermediate,
+                  masterKeypair.publicKey,
+                  lamportsToSol(dustAmount)
+                );
+                totalDustRecovered += dustAmount;
+              }
+            } catch (error) {
+              // Ignore dust collection errors
+            }
+          }
+
+          if (totalDustRecovered > 0) {
+            addLog('info', `Recovered ${lamportsToSol(totalDustRecovered).toFixed(6)} SOL dust from intermediates`);
+          }
+
+          await refreshBalances();
+          await get().refreshMasterBalance();
+          addLog('success', `Stealth funded ${funded}/${unfunded.length} wallets (chain: master→intermediate→target)`);
+        } catch (error) {
+          addLog('error', `Stealth funding failed: ${error}`);
+        } finally {
+          set({ isLoading: false, loadingMessage: '' });
+        }
       },
 
       collectAllFunds: async () => {

@@ -15,6 +15,7 @@ export function Wallets() {
     importWallets,
     exportWallets,
     quickFundWallets,
+    stealthFundWallets,
     collectAllFunds,
     getMasterKeypair,
     addLog,
@@ -23,6 +24,9 @@ export function Wallets() {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [fundAmount, setFundAmount] = useState('0.05');
   const [showFundModal, setShowFundModal] = useState(false);
+  const [showStealthFundModal, setShowStealthFundModal] = useState(false);
+  const [stealthFundAmount, setStealthFundAmount] = useState('0.05');
+  const [intermediateCount, setIntermediateCount] = useState('3');
   const [importText, setImportText] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
 

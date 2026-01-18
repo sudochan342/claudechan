@@ -29,9 +29,27 @@ export function Dashboard() {
   const fundedWallets = wallets.filter(w => w.funded).length;
   const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
 
+  const isPublicRpc = settings.rpcUrl.includes('api.mainnet-beta.solana.com');
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-green-400">Dashboard</h2>
+
+      {/* RPC Warning */}
+      {isPublicRpc && (
+        <div className="bg-red-900/30 border border-red-600 rounded-lg p-4">
+          <h3 className="text-red-400 font-semibold mb-2">RPC Configuration Required</h3>
+          <p className="text-gray-300 text-sm mb-3">
+            The public Solana RPC blocks browser requests. You need a private RPC to use this app.
+          </p>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Go to Settings
+          </button>
+        </div>
+      )}
 
       {/* Master Wallet */}
       <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">

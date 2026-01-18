@@ -78,18 +78,50 @@ export function Settings() {
       <h2 className="text-2xl font-bold text-green-400">Settings</h2>
 
       {/* RPC Settings */}
-      <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-        <h3 className="text-lg font-semibold text-white mb-3">Solana RPC</h3>
+      <div className="bg-gray-800 rounded-lg p-4 border border-yellow-600">
+        <h3 className="text-lg font-semibold text-white mb-2">Solana RPC</h3>
+        <p className="text-yellow-400 text-sm mb-3">
+          Required: You need a private RPC that supports browser requests (CORS)
+        </p>
         <input
           type="text"
           value={rpcUrl}
           onChange={(e) => setRpcUrl(e.target.value)}
           className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg font-mono text-sm"
-          placeholder="https://api.mainnet-beta.solana.com"
+          placeholder="https://your-rpc-url.com"
         />
-        <p className="text-gray-400 text-sm mt-2">
-          Use a private RPC for better performance (Helius, QuickNode, etc.)
-        </p>
+        <div className="mt-3 space-y-2">
+          <p className="text-gray-400 text-sm font-semibold">Free RPC providers (sign up required):</p>
+          <div className="grid grid-cols-1 gap-2 text-sm">
+            <a
+              href="https://www.helius.dev/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              Helius - helius.dev (recommended, free tier)
+            </a>
+            <a
+              href="https://www.quicknode.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              QuickNode - quicknode.com (free tier)
+            </a>
+            <a
+              href="https://www.alchemy.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              Alchemy - alchemy.com (free tier)
+            </a>
+          </div>
+          <p className="text-gray-500 text-xs mt-2">
+            The public Solana RPC blocks browser requests. Get a free private RPC above.
+          </p>
+        </div>
       </div>
 
       {/* Master Wallet */}

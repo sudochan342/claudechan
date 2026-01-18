@@ -66,6 +66,7 @@ interface BotState {
 
   // Buy/Sell actions
   lookupToken: (mintAddress: string) => Promise<PumpFunTokenInfo | null>;
+  refreshTokenInfo: () => Promise<PumpFunTokenInfo | null>;
   executeBuy: (
     mintAddress: string,
     totalAmount: number,
@@ -560,6 +561,23 @@ export const useBotStore = create<BotState>()(
           return info;
         } catch (error) {
           addLog('error', `Failed to lookup token: ${error}`);
+          return null;
+        }
+      },
+
+      refreshTokenInfo: async () => {
+        const { holdings, pumpFunBuyer } = get();
+        if (!pumpFunBuyer || !holdings.token) {
+          return null;
+        }
+
+        try {
+          const info = await pumpFunBuyer.getTokenInfo(new PublicKey(holdings.token));
+          if (info) {
+            set({ currentTokenInfo: info });
+          }
+          return info;
+        } catch {
           return null;
         }
       },

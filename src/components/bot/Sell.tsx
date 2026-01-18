@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useBotStore } from '@/store/bot-store';
-import { shortenAddress, lamportsToSol } from '@/lib/helpers';
+import { shortenAddress } from '@/lib/helpers';
 
 export function Sell() {
   const {
@@ -13,9 +13,32 @@ export function Sell() {
     executeSellAll,
     clearHoldings,
     setActiveTab,
+    refreshTokenInfo,
   } = useBotStore();
 
   const [progress, setProgress] = useState<{ current: number; total: number; status: string } | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
+
+  // Refresh token info to update PnL
+  const handleRefreshPnL = useCallback(async () => {
+    if (isRefreshing || !holdings.token) return;
+    setIsRefreshing(true);
+    await refreshTokenInfo();
+    setLastRefresh(Date.now());
+    setIsRefreshing(false);
+  }, [holdings.token, isRefreshing, refreshTokenInfo]);
+
+  // Auto-refresh every 10 seconds when on sell panel with holdings
+  useEffect(() => {
+    if (!holdings.token) return;
+
+    const interval = setInterval(() => {
+      handleRefreshPnL();
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [holdings.token, handleRefreshPnL]);
 
   // Calculate current token price and PnL
   const pnlData = useMemo(() => {
@@ -124,7 +147,21 @@ export function Sell() {
       {/* PnL Summary */}
       {pnlData && (
         <div className={`bg-gray-800 rounded-lg p-4 border ${pnlData.totalPnl >= 0 ? 'border-green-500' : 'border-red-500'}`}>
-          <h3 className="text-lg font-semibold text-white mb-3">P&L Summary</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-white">P&L Summary</h3>
+            <button
+              onClick={handleRefreshPnL}
+              disabled={isRefreshing}
+              className="bg-gray-700 hover:bg-gray-600 disabled:bg-gray-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors flex items-center gap-2"
+            >
+              {isRefreshing ? (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                '↻'
+              )}
+              Refresh
+            </button>
+          </div>
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-400">Current Value:</span>
@@ -137,6 +174,9 @@ export function Sell() {
               </span>
             </div>
           </div>
+          <p className="text-gray-500 text-xs mt-2 text-center">
+            Auto-refreshes every 10s • Last: {new Date(lastRefresh).toLocaleTimeString()}
+          </p>
         </div>
       )}
 

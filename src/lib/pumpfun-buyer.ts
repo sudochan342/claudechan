@@ -439,8 +439,14 @@ export class PumpFunBuyer {
     try {
       // Use our API route to avoid CORS issues
       const response = await fetch(`/api/token/${mint.toBase58()}`);
-      if (!response.ok) return null;
-      return await response.json() as PumpFunTokenInfo;
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Token lookup error:', data.error || 'Unknown error');
+        return null;
+      }
+
+      return data as PumpFunTokenInfo;
     } catch (error) {
       console.error('Token lookup failed:', error);
       return null;

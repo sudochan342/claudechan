@@ -57,28 +57,34 @@ export class JupiterService {
     outputMint: string,
     amount: number,
     slippageBps: number = 500
-  ): Promise<JupiterQuote | null> {
+  ): Promise<{ quote: JupiterQuote | null; error?: string }> {
     try {
       const params = new URLSearchParams({
         inputMint,
         outputMint,
         amount: amount.toString(),
         slippageBps: slippageBps.toString(),
-        restrictIntermediateTokens: 'true',
+        // Don't restrict intermediate tokens - allows PumpFun routing
       });
 
-      const response = await fetch(`https://api.jup.ag/swap/v1/quote?${params}`);
+      const url = `https://api.jup.ag/swap/v1/quote?${params}`;
+      console.log('Jupiter quote URL:', url);
+
+      const response = await fetch(url);
+      const responseText = await response.text();
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error('Jupiter quote error:', error);
-        return null;
+        console.error('Jupiter quote error:', response.status, responseText);
+        return { quote: null, error: `Jupiter API ${response.status}: ${responseText}` };
       }
 
-      return await response.json();
+      const data = JSON.parse(responseText);
+      console.log('Jupiter quote response:', data);
+      return { quote: data };
     } catch (error) {
-      console.error('Jupiter quote failed:', error);
-      return null;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('Jupiter quote failed:', errorMsg);
+      return { quote: null, error: errorMsg };
     }
   }
 
@@ -129,11 +135,13 @@ export class JupiterService {
     try {
       // Step 1: Get quote (SOL -> Token)
       const lamports = solToLamports(solAmount);
-      const quote = await this.getQuote(SOL_MINT, tokenMint, lamports, slippageBps);
+      const quoteResult = await this.getQuote(SOL_MINT, tokenMint, lamports, slippageBps);
 
-      if (!quote) {
-        return { success: false, error: 'Failed to get quote from Jupiter' };
+      if (!quoteResult.quote) {
+        return { success: false, error: quoteResult.error || 'Failed to get quote from Jupiter' };
       }
+
+      const quote = quoteResult.quote;
 
       // Step 2: Build swap transaction
       const swapResponse = await this.buildSwapTransaction(
@@ -172,16 +180,18 @@ export class JupiterService {
   ): Promise<{ success: boolean; signature?: string; solReceived?: string; error?: string }> {
     try {
       // Step 1: Get quote (Token -> SOL)
-      const quote = await this.getQuote(
+      const quoteResult = await this.getQuote(
         tokenMint,
         SOL_MINT,
         Number(tokenAmount),
         slippageBps
       );
 
-      if (!quote) {
-        return { success: false, error: 'Failed to get sell quote from Jupiter' };
+      if (!quoteResult.quote) {
+        return { success: false, error: quoteResult.error || 'Failed to get sell quote from Jupiter' };
       }
+
+      const quote = quoteResult.quote;
 
       // Step 2: Build swap transaction
       const swapResponse = await this.buildSwapTransaction(

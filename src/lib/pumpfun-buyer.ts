@@ -24,7 +24,6 @@ const PUMPFUN_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7Abicf
 const PUMPFUN_EVENT_AUTHORITY = new PublicKey('Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1');
 // New accounts required by updated PumpFun IDL
 const PUMPFUN_FEE_PROGRAM = new PublicKey('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');
-const PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR = new PublicKey('6K1YZhFxWjJBp5LLEH4S7Z7D7v3xVJrvvVaGgxL1sGbH');
 
 // Discriminators as Uint8Array (browser compatible)
 const BUY_DISCRIMINATOR = new Uint8Array([102, 6, 61, 18, 1, 218, 235, 234]);
@@ -98,9 +97,10 @@ export class PumpFunBuyer {
   }
 
   // New PDA derivations for updated IDL
-  deriveCreatorVault(mint: PublicKey): PublicKey {
+  // creator-vault uses the CREATOR address from the bonding curve, not the mint
+  deriveCreatorVault(creator: PublicKey): PublicKey {
     const [creatorVault] = PublicKey.findProgramAddressSync(
-      [Buffer.from('creator-vault'), mint.toBuffer()],
+      [Buffer.from('creator-vault'), creator.toBuffer()],
       PUMPFUN_PROGRAM_ID
     );
     return creatorVault;
@@ -108,18 +108,46 @@ export class PumpFunBuyer {
 
   deriveUserVolumeAccumulator(user: PublicKey): PublicKey {
     const [userVolumeAccumulator] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user-volume'), user.toBuffer()],
+      [Buffer.from('user_volume_accumulator'), user.toBuffer()],
       PUMPFUN_PROGRAM_ID
     );
     return userVolumeAccumulator;
   }
 
+  deriveGlobalVolumeAccumulator(): PublicKey {
+    const [globalVolumeAccumulator] = PublicKey.findProgramAddressSync(
+      [Buffer.from('global_volume_accumulator')],
+      PUMPFUN_PROGRAM_ID
+    );
+    return globalVolumeAccumulator;
+  }
+
   deriveFeeConfig(): PublicKey {
+    // fee_config has a hardcoded pubkey seed according to the IDL
+    // The seed is: "fee_config" + a fixed pubkey
+    const FEE_CONFIG_SEED_PUBKEY = new PublicKey('1VQBxGDh4xRibcKG3PMPDKgHbmkVEv2ia2i4pZ1e3YY');
     const [feeConfig] = PublicKey.findProgramAddressSync(
-      [Buffer.from('fee-config')],
+      [Buffer.from('fee_config'), FEE_CONFIG_SEED_PUBKEY.toBuffer()],
       PUMPFUN_FEE_PROGRAM
     );
     return feeConfig;
+  }
+
+  // Read creator address from bonding curve account
+  async getCreatorFromBondingCurve(bondingCurve: PublicKey): Promise<PublicKey | null> {
+    try {
+      const accountInfo = await this.solanaService.getConnection().getAccountInfo(bondingCurve);
+      if (!accountInfo || accountInfo.data.length < 81) {
+        return null;
+      }
+      // BondingCurve layout: 8 discriminator + 40 reserves/supply + 1 complete + 32 creator
+      // Creator starts at offset 49
+      const creatorBytes = accountInfo.data.slice(49, 81);
+      return new PublicKey(creatorBytes);
+    } catch (error) {
+      console.error('Failed to read creator from bonding curve:', error);
+      return null;
+    }
   }
 
   calculateTokensOut(
@@ -154,7 +182,7 @@ export class PumpFunBuyer {
     return minSolOut;
   }
 
-  createBuyInstruction(
+  async createBuyInstruction(
     wallet: PublicKey,
     mint: PublicKey,
     bondingCurve: PublicKey,
@@ -162,10 +190,17 @@ export class PumpFunBuyer {
     associatedUser: PublicKey,
     solAmount: number,
     minTokensOut: bigint
-  ): TransactionInstruction {
-    // Derive new required PDAs
-    const creatorVault = this.deriveCreatorVault(mint);
+  ): Promise<TransactionInstruction> {
+    // Get the creator address from the bonding curve account
+    const creator = await this.getCreatorFromBondingCurve(bondingCurve);
+    if (!creator) {
+      throw new Error('Failed to get creator from bonding curve - token may not exist or bonding curve not initialized');
+    }
+
+    // Derive new required PDAs with correct seeds
+    const creatorVault = this.deriveCreatorVault(creator);
     const userVolumeAccumulator = this.deriveUserVolumeAccumulator(wallet);
+    const globalVolumeAccumulator = this.deriveGlobalVolumeAccumulator();
     const feeConfig = this.deriveFeeConfig();
 
     // New instruction data format with trackVolume option
@@ -189,7 +224,7 @@ export class PumpFunBuyer {
       { pubkey: creatorVault, isSigner: false, isWritable: true },              // 10. creator_vault
       { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },  // 11. event_authority
       { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },       // 12. program
-      { pubkey: PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR, isSigner: false, isWritable: false }, // 13. global_volume_accumulator
+      { pubkey: globalVolumeAccumulator, isSigner: false, isWritable: false },  // 13. global_volume_accumulator
       { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },     // 14. user_volume_accumulator
       { pubkey: feeConfig, isSigner: false, isWritable: false },                // 15. fee_config
       { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },      // 16. fee_program
@@ -276,18 +311,17 @@ export class PumpFunBuyer {
     const virtualTokenReserves = tokenInfo?.virtual_token_reserves ?? 1000000000 * 1e6;
     const minTokensOut = this.calculateTokensOut(solAmount, virtualSolReserves, virtualTokenReserves, slippageBps);
 
-    // Add buy instruction
-    instructions.push(
-      this.createBuyInstruction(
-        wallet.keypair.publicKey,
-        mint,
-        bondingCurve,
-        associatedBondingCurve,
-        associatedUser,
-        solAmount,
-        minTokensOut
-      )
+    // Add buy instruction (now async to fetch creator from bonding curve)
+    const buyInstruction = await this.createBuyInstruction(
+      wallet.keypair.publicKey,
+      mint,
+      bondingCurve,
+      associatedBondingCurve,
+      associatedUser,
+      solAmount,
+      minTokensOut
     );
+    instructions.push(buyInstruction);
 
     try {
       const { blockhash } = await this.solanaService.getLatestBlockhash();

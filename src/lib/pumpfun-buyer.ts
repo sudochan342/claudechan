@@ -8,6 +8,7 @@ import {
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
@@ -123,6 +124,19 @@ export class PumpFunBuyer {
     }
   }
 
+  // Detect which token program the mint uses (Token or Token-2022)
+  async getTokenProgramForMint(mint: PublicKey): Promise<PublicKey> {
+    try {
+      const info = await this.solanaService.getConnection().getAccountInfo(mint);
+      if (info && info.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+        return TOKEN_2022_PROGRAM_ID;
+      }
+    } catch {
+      // Fall back to legacy
+    }
+    return TOKEN_PROGRAM_ID;
+  }
+
   async executeSingleBuy(
     wallet: BundleWallet,
     mint: PublicKey,
@@ -133,8 +147,13 @@ export class PumpFunBuyer {
     try {
       const userPubkey = wallet.keypair.publicKey;
       const bondingCurve = deriveBondingCurve(mint);
-      const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true);
-      const associatedUser = await getAssociatedTokenAddress(mint, userPubkey);
+
+      // Detect token program (Token or Token-2022)
+      const tokenProgram = await this.getTokenProgramForMint(mint);
+
+      // Derive ATAs with correct token program
+      const associatedBondingCurve = await getAssociatedTokenAddress(mint, bondingCurve, true, tokenProgram);
+      const associatedUser = await getAssociatedTokenAddress(mint, userPubkey, false, tokenProgram);
 
       // Get creator from bonding curve
       const creator = await this.getCreatorFromBondingCurve(bondingCurve);
@@ -150,11 +169,11 @@ export class PumpFunBuyer {
         ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })
       );
 
-      // Create ATA if needed
+      // Create ATA if needed (with correct token program)
       const ataInfo = await this.solanaService.getConnection().getAccountInfo(associatedUser);
       if (!ataInfo) {
         instructions.push(
-          createAssociatedTokenAccountInstruction(userPubkey, associatedUser, userPubkey, mint)
+          createAssociatedTokenAccountInstruction(userPubkey, associatedUser, userPubkey, mint, tokenProgram)
         );
       }
 
@@ -173,7 +192,7 @@ export class PumpFunBuyer {
       data.set(writeU64LE(maxSolCost), 16);
       data[24] = 0; // track_volume = false
 
-      // 16-account buy instruction
+      // 16-account buy instruction (use detected token program)
       const keys = [
         { pubkey: deriveGlobal(), isSigner: false, isWritable: false },
         { pubkey: PUMPFUN_FEE_RECIPIENT, isSigner: false, isWritable: true },
@@ -183,7 +202,7 @@ export class PumpFunBuyer {
         { pubkey: associatedUser, isSigner: false, isWritable: true },
         { pubkey: userPubkey, isSigner: true, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: tokenProgram, isSigner: false, isWritable: false },
         { pubkey: deriveCreatorVault(creator), isSigner: false, isWritable: true },
         { pubkey: deriveEventAuthority(), isSigner: false, isWritable: false },
         { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },

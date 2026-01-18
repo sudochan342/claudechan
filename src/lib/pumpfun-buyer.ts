@@ -195,7 +195,7 @@ export class PumpFunBuyer {
     solAmount: number,
     slippageBps: number,
     tokenInfo?: PumpFunTokenInfo
-  ): Promise<{ success: boolean; signature?: string; tokensReceived?: bigint }> {
+  ): Promise<{ success: boolean; signature?: string; tokensReceived?: bigint; error?: string }> {
     const bondingCurve = this.deriveBondingCurve(mint);
     const associatedBondingCurve = this.deriveAssociatedBondingCurve(mint, bondingCurve);
     const associatedUser = await getAssociatedTokenAddress(mint, wallet.keypair.publicKey);
@@ -263,8 +263,9 @@ export class PumpFunBuyer {
 
       return { success: true, signature, tokensReceived: minTokensOut };
     } catch (error) {
-      console.error('Buy failed:', error);
-      return { success: false };
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('Buy failed:', errorMsg);
+      return { success: false, error: errorMsg };
     }
   }
 
@@ -309,7 +310,9 @@ export class PumpFunBuyer {
         }
       } else {
         if (onProgress) {
-          onProgress(i + 1, shuffledWallets.length, wallet.info.publicKey, 'failed');
+          // Include error message in status
+          const errorStatus = result.error ? `failed: ${result.error.slice(0, 100)}` : 'failed';
+          onProgress(i + 1, shuffledWallets.length, wallet.info.publicKey, errorStatus);
         }
       }
 

@@ -402,8 +402,8 @@ export const useBotStore = create<BotState>()(
               if (onProgress) onProgress(current, total, wallet, status);
               if (status === 'success') {
                 addLog('success', `[${current}/${total}] Bought with ${wallet.slice(0, 8)}...`);
-              } else if (status === 'failed') {
-                addLog('error', `[${current}/${total}] Failed with ${wallet.slice(0, 8)}...`);
+              } else if (status.startsWith('failed')) {
+                addLog('error', `[${current}/${total}] ${wallet.slice(0, 8)}... ${status}`);
               }
             }
           );

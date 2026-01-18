@@ -1,0 +1,31 @@
+{
+  "name": "pumpfun-bundle-bot",
+  "version": "1.0.0",
+  "description": "Solana PumpFun Bundle Buyer Bot with Telegram Interface",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "generate-wallets": "ts-node src/scripts/generate-wallets.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@jito-labs/jito-ts": "^3.0.0",
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.91.0",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.0",
+    "grammy": "^1.21.0",
+    "node-fetch": "^3.3.2",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

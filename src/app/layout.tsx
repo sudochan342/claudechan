@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WalletProvider } from "@/components/WalletProvider";
 
 export const metadata: Metadata = {
   title: "The Duality Oracle | LUMIS & UMBRA",
@@ -25,7 +26,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="antialiased bg-gray-950 text-gray-100 font-sans">
-        {children}
+        <WalletProvider>
+          {children}
+        </WalletProvider>
       </body>
     </html>
   );

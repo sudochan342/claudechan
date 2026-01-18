@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { createBuyTransaction, sendAndConfirmTransactionWithRetry, createJupiterSwapTransaction } from '@/lib/solana-utils';
 
 interface TokenInfoProps {
   contractAddress?: string;
@@ -12,11 +16,18 @@ export function TokenInfo({
   contractAddress = 'YOUR_CONTRACT_ADDRESS_HERE',
   tokenSymbol = '$CLAUDE'
 }: TokenInfoProps) {
+  const { publicKey, sendTransaction, connected } = useWallet();
+  const { connection } = useConnection();
+
   const [copied, setCopied] = useState(false);
   const [priceChange, setPriceChange] = useState(0);
   const [marketCap, setMarketCap] = useState(0);
   const [holders, setHolders] = useState(0);
   const [volume24h, setVolume24h] = useState(0);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
+  const [buySuccess, setBuySuccess] = useState<string | null>(null);
+  const [useJupiter, setUseJupiter] = useState(false);
 
   // Simulated real-time updates (replace with actual API calls)
   useEffect(() => {
@@ -46,6 +57,78 @@ export function TokenInfo({
     if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
     if (num >= 1000) return `$${(num / 1000).toFixed(1)}K`;
     return `$${num.toFixed(0)}`;
+  };
+
+  const handleBuy = async (solAmount: number) => {
+    if (!connected || !publicKey) {
+      setBuyError('Please connect your wallet first');
+      return;
+    }
+
+    if (contractAddress === 'YOUR_CONTRACT_ADDRESS_HERE' || contractAddress === 'DEPLOYING...') {
+      setBuyError('Invalid contract address');
+      return;
+    }
+
+    setBuying(true);
+    setBuyError(null);
+    setBuySuccess(null);
+
+    try {
+      const tokenMint = new PublicKey(contractAddress);
+      let transaction;
+
+      if (useJupiter) {
+        // Use Jupiter for swap
+        const SOL_MINT = 'So11111111111111111111111111111111111111112';
+        transaction = await createJupiterSwapTransaction(
+          publicKey,
+          SOL_MINT,
+          contractAddress,
+          Math.floor(solAmount * LAMPORTS_PER_SOL),
+          500 // 5% slippage
+        );
+      } else {
+        // Use Pump.fun for buy
+        transaction = await createBuyTransaction(
+          connection,
+          publicKey,
+          tokenMint,
+          solAmount,
+          500 // 5% slippage
+        );
+      }
+
+      // Send transaction
+      const signature = await sendTransaction(transaction, connection, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      setBuySuccess(`Success! Transaction: ${signature.slice(0, 8)}...`);
+      console.log('Buy successful:', signature);
+
+    } catch (error: any) {
+      console.error('Buy error:', error);
+
+      if (error.message?.includes('IncorrectProgramId')) {
+        setBuyError('Transaction failed: Incorrect Program ID detected. This has been fixed - please try again.');
+      } else if (error.message?.includes('User rejected')) {
+        setBuyError('Transaction cancelled by user');
+      } else {
+        setBuyError(error.message || 'Transaction failed. Please try again.');
+      }
+    } finally {
+      setBuying(false);
+    }
   };
 
   return (
@@ -163,28 +246,159 @@ export function TokenInfo({
         </div>
       </div>
 
-      {/* Buy Button */}
+      {/* Wallet Connection */}
+      <div className="px-4 pb-3">
+        <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl p-3 border-2 border-purple-100">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1">
+              <p className="text-purple-600 text-xs font-bold uppercase tracking-wide mb-1">Wallet</p>
+              <div className="wallet-adapter-button-trigger">
+                <WalletMultiButton />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setUseJupiter(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  !useJupiter
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+              >
+                Pump.fun
+              </button>
+              <button
+                onClick={() => setUseJupiter(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  useJupiter
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+              >
+                Jupiter
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Error/Success Messages */}
+      {(buyError || buySuccess) && (
+        <div className="px-4 pb-3">
+          <AnimatePresence mode="wait">
+            {buyError && (
+              <motion.div
+                key="error"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-red-100 border-2 border-red-300 rounded-xl p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-red-500 text-lg">⚠️</span>
+                  <div className="flex-1">
+                    <p className="text-red-800 text-sm font-bold">Transaction Failed</p>
+                    <p className="text-red-600 text-xs mt-1">{buyError}</p>
+                  </div>
+                  <button
+                    onClick={() => setBuyError(null)}
+                    className="text-red-500 hover:text-red-700 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </motion.div>
+            )}
+            {buySuccess && (
+              <motion.div
+                key="success"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-emerald-100 border-2 border-emerald-300 rounded-xl p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-500 text-lg">✅</span>
+                  <div className="flex-1">
+                    <p className="text-emerald-800 text-sm font-bold">Transaction Successful!</p>
+                    <p className="text-emerald-600 text-xs mt-1">{buySuccess}</p>
+                  </div>
+                  <button
+                    onClick={() => setBuySuccess(null)}
+                    className="text-emerald-500 hover:text-emerald-700 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Quick Buy Buttons */}
       <div className="px-4 pb-4">
-        <motion.a
-          href={`https://pump.fun/coin/${contractAddress}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          whileHover={{ scale: 1.02, y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          className="block w-full py-4 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white font-black text-xl rounded-2xl shadow-2xl shadow-emerald-500/50 hover:shadow-emerald-400/70 text-center transition-all relative overflow-hidden group"
+        <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-3 text-center">Quick Buy</p>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {[0.1, 0.5, 1.0].map((amount) => (
+            <motion.button
+              key={amount}
+              onClick={() => handleBuy(amount)}
+              disabled={buying || !connected}
+              whileHover={{ scale: connected ? 1.05 : 1, y: connected ? -2 : 0 }}
+              whileTap={{ scale: connected ? 0.95 : 1 }}
+              className={`py-3 rounded-xl font-bold text-sm shadow-lg transition-all ${
+                buying || !connected
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white hover:from-emerald-500 hover:to-teal-500'
+              }`}
+            >
+              {amount} SOL
+            </motion.button>
+          ))}
+        </div>
+        <motion.button
+          onClick={() => handleBuy(5.0)}
+          disabled={buying || !connected}
+          whileHover={{ scale: connected ? 1.02 : 1, y: connected ? -2 : 0 }}
+          whileTap={{ scale: connected ? 0.98 : 1 }}
+          className={`block w-full py-4 rounded-2xl font-black text-xl shadow-2xl text-center transition-all relative overflow-hidden group ${
+            buying || !connected
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 text-white shadow-emerald-500/50 hover:shadow-emerald-400/70'
+          }`}
         >
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 opacity-0 group-hover:opacity-100"
-            initial={{ x: '-100%' }}
-            whileHover={{ x: '100%' }}
-            transition={{ duration: 0.6 }}
-          />
-          <span className="relative flex items-center justify-center gap-3">
-            <span className="text-2xl">🚀</span>
-            BUY ON PUMP.FUN
-            <span className="text-2xl">🚀</span>
-          </span>
-        </motion.a>
+          {buying ? (
+            <span className="flex items-center justify-center gap-2">
+              <motion.span
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              >
+                ⌛
+              </motion.span>
+              Processing...
+            </span>
+          ) : !connected ? (
+            <span>Connect Wallet to Buy</span>
+          ) : (
+            <>
+              <motion.div
+                className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 opacity-0 group-hover:opacity-100"
+                initial={{ x: '-100%' }}
+                whileHover={{ x: '100%' }}
+                transition={{ duration: 0.6 }}
+              />
+              <span className="relative flex items-center justify-center gap-3">
+                <span className="text-2xl">🚀</span>
+                BUY 5 SOL
+                <span className="text-2xl">🚀</span>
+              </span>
+            </>
+          )}
+        </motion.button>
+        <p className="text-gray-400 text-xs text-center mt-2">
+          Using {useJupiter ? 'Jupiter Aggregator' : 'Pump.fun'} • 5% slippage
+        </p>
       </div>
 
       {/* Social Links */}
